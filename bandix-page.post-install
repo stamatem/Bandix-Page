@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/busybox sh
 
 echo "[Bandix-Page] Setup..."
 
