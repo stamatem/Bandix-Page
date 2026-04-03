@@ -1,0 +1,29 @@
+#!/bin/sh
+
+echo "[Bandix-Page] Setup..."
+
+# ensure directories
+mkdir -p /www/data
+
+# create files if missing
+[ -f /www/data/users.json ] || echo '{}' > /www/data/users.json
+[ -f /www/data/bandix-public.json ] || echo '{}' > /www/data/bandix-public.json
+
+# permissions
+chmod 644 /www/data/users.json
+chmod 644 /www/data/bandix-public.json
+
+# ensure scripts executable
+chmod +x /www/cgi-bin/* 2>/dev/null
+chmod +x /usr/bin/bandix-flush 2>/dev/null
+chmod +x /etc/init.d/bandix-sync 2>/dev/null
+
+# enable + start service
+if [ -f /etc/init.d/bandix-sync ]; then
+    /etc/init.d/bandix-sync enable
+    /etc/init.d/bandix-sync start
+fi
+
+echo "[Bandix-Page] Ready"
+
+exit 0
