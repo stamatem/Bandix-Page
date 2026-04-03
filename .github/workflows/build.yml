@@ -1,0 +1,44 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    container:
+      image: alpine:latest
+
+    steps:
+    - run: apk add alpine-sdk abuild sudo
+
+    - uses: actions/checkout@v4
+
+    - run: |
+        chmod +x bandix-page.post-install
+        chmod -R a+rw .
+
+    - run: |
+        adduser -D builder
+        addgroup builder abuild
+        echo "builder ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+    - run: |
+        mkdir -p /home/builder/.abuild
+        chown -R builder:builder /home/builder
+        sudo -u builder abuild-keygen -a -n
+
+    - run: |
+        chown -R builder:builder .
+        sudo -u builder sh -c "abuild -rK || true"
+
+    - run: |
+        mkdir -p /tmp/artifacts
+        find /home/builder/packages -name "*.apk" -exec cp {} /tmp/artifacts/ \;
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: bandix-apk
+        path: /tmp/artifacts/*.apk
