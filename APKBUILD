@@ -8,6 +8,7 @@ license="MIT"
 
 depends=""
 options="!check !tracedeps"
+subpackages=""
 
 install="bandix-page.post-install"
 
