@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/busybox sh
 
 IN="/tmp/bandix-buffer.json"
 OUT="/www/data/bandix-public.json"
