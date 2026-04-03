@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/busybox sh
 
 DATA_FILE="/www/data/users.json"
 TMP_FILE="/tmp/users.json.tmp"
