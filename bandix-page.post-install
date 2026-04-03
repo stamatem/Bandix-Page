@@ -2,27 +2,27 @@
 
 echo "[Bandix-Page] Setup..."
 
-# ensure directories
+# Ensure directories exist
 mkdir -p /www/data
 
-# create files if missing
+# Create default JSON files (if missing)
 [ -f /www/data/users.json ] || echo '{}' > /www/data/users.json
 [ -f /www/data/bandix-public.json ] || echo '{}' > /www/data/bandix-public.json
 
-# permissions
-chmod 644 /www/data/users.json
-chmod 644 /www/data/bandix-public.json
+# Fix permissions
+chmod 644 /www/data/users.json 2>/dev/null
+chmod 644 /www/data/bandix-public.json 2>/dev/null
 
-# ensure scripts executable
-chmod +x /www/cgi-bin/* 2>/dev/null
-chmod +x /usr/bin/bandix-flush 2>/dev/null
-chmod +x /etc/init.d/bandix-sync 2>/dev/null
+# Ensure scripts are executable
+[ -d /www/cgi-bin ] && chmod +x /www/cgi-bin/* 2>/dev/null
+[ -f /usr/bin/bandix-flush ] && chmod +x /usr/bin/bandix-flush
+[ -f /etc/init.d/bandix-sync ] && chmod +x /etc/init.d/bandix-sync
 
-# enable + start service
-if [ -f /etc/init.d/bandix-sync ]; then
-    /etc/init.d/bandix-sync enable
-    /etc/init.d/bandix-sync start
-fi
+# Enable service (for reboot persistence)
+/etc/init.d/bandix-sync enable 2>/dev/null
+
+# 🔥 OPTIONAL: auto-start WITHOUT blocking apk
+( /etc/init.d/bandix-sync start >/dev/null 2>&1 ) &
 
 echo "[Bandix-Page] Ready"
 
