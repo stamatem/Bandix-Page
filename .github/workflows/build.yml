@@ -32,7 +32,7 @@ jobs:
 
     - run: |
         chown -R builder:builder .
-        sudo -u builder sh -c "abuild -rK || true"
+        sudo -u builder sh -c "abuild -rK -F || true"
 
     - run: |
         mkdir -p /tmp/artifacts
