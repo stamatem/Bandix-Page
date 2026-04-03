@@ -6,7 +6,8 @@ url="https://github.com/yourusername/Bandix-Page"
 arch="noarch"
 license="MIT"
 
-options="!check !deps"
+depends=""
+options="!check !tracedeps"
 
 install="bandix-page.post-install"
 
