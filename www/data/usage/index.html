@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Usage</title>
+
+<style>
+body {
+  background:#0b1220;
+  color:white;
+  font-family:sans-serif;
+  margin:0;
+  min-height:100vh; /* add this */
+}
+
+.container {
+  padding:12px;
+  max-width:600px;
+  margin:auto;
+}
+
+.header {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:10px;
+}
+
+h2 {
+  font-size:18px;
+  margin:0;
+}
+
+.admin-btn {
+  background:#1e293b;
+  padding:6px 10px;
+  border-radius:8px;
+  color:#60a5fa;
+  text-decoration:none;
+  font-size:18px;
+}
+
+.card {
+  background:#1e293b;
+  padding:14px;
+  margin-bottom:12px;
+  border-radius:12px;
+}
+
+.user {
+  font-size:16px;
+  font-weight:bold;
+  margin-bottom:5px;
+}
+
+.usage {
+  font-size:13px;
+  opacity:0.8;
+}
+
+.bar-bg {
+  background:#333;
+  height:18px;
+  border-radius:8px;
+  margin-top:8px;
+  overflow:hidden;
+}
+
+.bar-fill {
+  height:100%;
+  border-radius:8px;
+  text-align:center;
+  font-size:11px;
+  line-height:18px;
+  font-weight:bold;
+  color:#000;
+  transition:width 0.4s ease;
+}
+
+@media (max-width:480px) {
+  .container { padding:10px; }
+  h2 { font-size:16px; }
+  .user { font-size:15px; }
+  .usage { font-size:12px; }
+  .bar-bg { height:20px; }
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<div class="header">
+  <h2>👥 Usage</h2>
+  <a href="/data/admin/" class="admin-btn">⚙ Admin</a>
+</div>
+
+<div id="list">Loading...</div>
+
+</div>
+
+<script>
+function bytesToGB(bytes) {
+  return bytes / 1e9;
+}
+
+async function load() {
+  try {
+    const usersRes = await fetch('/data/users.json?t=' + Date.now());
+    const users = await usersRes.json();
+
+    const dataRes = await fetch('/data/bandix-public.json?t=' + Date.now());
+
+    if (!dataRes.ok) throw new Error("HTTP " + dataRes.status);
+
+    const text = await dataRes.text();
+
+    let json = {};
+    if (text && text.trim() !== "") {
+      try {
+        json = JSON.parse(text);
+      } catch (e) {
+        console.warn("Bad JSON, skipping refresh");
+        return;
+      }
+    }
+
+    let devices = json.devices || [];
+
+    devices = devices.filter(d => d.ip !== "192.168.2.1");
+
+    let grouped = {};
+    devices.forEach(d => {
+      grouped[d.mac] = (d.wan_rx_bytes || 0) + (d.wan_tx_bytes || 0);
+    });
+
+    let userList = [];
+
+    for (let user in users) {
+      if (user === "_multiplier") continue;
+      let totalBytes = 0;
+      let macs = users[user].macs || [];
+
+      macs.forEach(mac => {
+        totalBytes += grouped[mac] || 0;
+      });
+
+      userList.push({
+        name: user,
+        totalBytes: totalBytes
+      });
+    }
+
+    userList.sort((a,b) => b.totalBytes - a.totalBytes);
+
+    const list = document.getElementById('list');
+    list.innerHTML = '';
+
+    let grandTotalGB = 0;
+
+    userList.forEach(entry => {
+      const user = entry.name;
+      const multiplier = users._multiplier || 1.2;
+      const totalGB = bytesToGB(entry.totalBytes) * multiplier;
+      grandTotalGB += totalGB;
+
+      const quota = users[user].quota || 1;
+
+      let percent = (totalGB / quota) * 100;
+      if (percent > 100) percent = 100;
+
+      const over = totalGB > quota;
+
+      let color = '#4ade80';
+      if (percent > 70) color = '#facc15';
+      if (percent > 90) color = '#ef4444';
+
+      const div = document.createElement('div');
+      div.className = 'card';
+
+      div.innerHTML = `
+        <div class="user">
+          ${user} ${over ? '🔴' : ''}
+        </div>
+
+        <div class="usage">
+          ${totalGB.toFixed(2)} GB / ${quota} GB (${percent.toFixed(0)}%)
+        </div>
+
+        <div class="bar-bg">
+          <div class="bar-fill" style="width:${percent}%; background:${color};">
+            ${percent.toFixed(0)}%
+          </div>
+        </div>
+      `;
+
+      list.appendChild(div);
+    });
+
+    const totalDiv = document.createElement('div');
+    totalDiv.className = 'card';
+    totalDiv.style.border = '2px solid #60a5fa';
+
+    totalDiv.innerHTML = `
+      <div class="user">
+        📊 Total Usage
+      </div>
+
+      <div class="usage">
+        ${grandTotalGB.toFixed(2)} GB
+      </div>
+    `;
+
+    list.appendChild(totalDiv);
+
+  } catch (e) {
+    document.getElementById('list').innerText = 'Error loading data';
+    console.error(e);
+  }
+}
+
+setInterval(load, 2000);
+load();
+
+window.addEventListener('storage', function(e) {
+  if (e.key === 'users_updated') {
+    load();
+  }
+});
+</script>
+
+</body>
+</html>

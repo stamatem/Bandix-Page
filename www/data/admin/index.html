@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Admin</title>
+
+<style>
+html, body {
+  height:100%;
+  margin:0;
+  padding:0;
+  background:#0b1220;
+  color:white;
+  font-family:sans-serif;
+}
+
+.container {
+  max-width:600px;
+  margin:auto;
+  padding:12px;
+}
+
+.header {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:12px;
+}
+
+h2 {
+  margin:0;
+  font-size:18px;
+}
+
+.nav-btn {
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  background:#1e293b; /* same as .card */
+  padding:10px 14px;
+  border-radius:12px;
+  color:white;
+  text-decoration:none;
+  font-size:16px; /* match "Change Password" */
+  font-weight:bold;
+}
+
+.card {
+  background:#1e293b;
+  padding:14px;
+  margin-bottom:12px;
+  border-radius:12px;
+}
+
+.user {
+  font-size:16px;
+  font-weight:bold;
+  margin-bottom:8px;
+}
+
+/* ✅ PERFECT ROW ALIGNMENT */
+.row {
+  display:flex;
+  gap:6px;
+  margin-top:6px;
+  align-items:center;
+}
+
+input {
+  flex:1;
+  padding:8px;
+  border-radius:8px;
+  border:none;
+  background:#0f172a;
+  color:white;
+}
+
+/* ✅ BUTTON COLUMN SYSTEM */
+button {
+  width:70px;
+  height:36px;
+  border:none;
+  border-radius:8px;
+  background:#334155;
+  color:white;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+button:hover {
+  background:#475569;
+}
+
+.action {
+  background:#16a34a;
+}
+
+.action:hover {
+  background:#15803d;
+}
+
+.delete {
+  background:#7f1d1d;
+}
+
+.delete:hover {
+  background:#991b1b;
+}
+
+/* ✅ MAC ROW ALIGNMENT */
+.mac {
+  display:flex;
+  align-items:center;
+  gap:6px;
+  margin-top:4px;
+}
+
+.mac span {
+  flex:1;
+  background:#0f172a;
+  padding:6px 8px;
+  border-radius:8px;
+  font-size:12px;
+}
+
+.hidden { display:none; }
+
+#loginBox {
+  max-width:400px;
+  margin:100px auto;
+  background:#1e293b;
+  padding:20px;
+  border-radius:12px;
+  text-align:center;
+}
+
+#loginBox button {
+  display: block;
+  margin: 10px auto 0;
+}
+</style>
+</head>
+
+<body>
+
+<div id="loginBox">
+  <h2>🔐 Admin Login</h2>
+  <input type="password" id="pass" placeholder="Password">
+  <button onclick="login()" class="action">Login</button>
+</div>
+
+<div id="adminPanel" class="container hidden">
+
+<div class="header">
+  <div class="nav-btn">🔐 Admin</div>
+  <a href="/data/usage/" class="nav-btn">📊 Usage</a>
+</div>
+
+<!-- PASSWORD -->
+<div class="card">
+  <div class="user">🔑 Change Password</div>
+
+  <div class="row">
+    <input id="oldPass" type="password" placeholder="Current password">
+  </div>
+
+  <div class="row">
+    <input id="newPass" type="password" placeholder="New password">
+    <button onclick="changePassword()" class="action">Save</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="user">📊 Multiplier</div>
+
+  <div class="row">
+    <input id="multiplier" type="number" step="0.01" placeholder="e.g. 1.2">
+    <button onclick="saveMultiplier()" class="action">Save</button>
+  </div>
+</div>
+
+<!-- NEW USER -->
+<div class="card">
+  <div class="user">➕ New User</div>
+
+  <div class="row">
+    <input id="newUser" placeholder="New user">
+    <button onclick="addUser()" class="action">Add</button>
+  </div>
+</div>
+
+<div id="list"></div>
+
+</div>
+
+<script>
+let adminPassword = localStorage.getItem('admin_pass') || "monitor84";
+
+function login() {
+  const pass = document.getElementById('pass').value;
+
+  if (pass !== adminPassword) {
+    alert("Wrong password");
+    return;
+  }
+
+  document.getElementById('loginBox').style.display = 'none';
+  document.getElementById('adminPanel').classList.remove('hidden');
+  load();
+}
+
+let users = {};
+
+async function load() {
+  const res = await fetch('/data/users.json?t=' + Date.now());
+  let text = await res.text();
+
+  try {
+    users = text ? JSON.parse(text) : {};
+  } catch (e) {
+    users = {};
+  }
+
+document.getElementById('multiplier').value = users._multiplier || 1.2;
+
+  const list = document.getElementById('list');
+  list.innerHTML = '';
+
+  for (let user in users) {
+    if (user === "_multiplier") continue;
+    const u = users[user] || { quota:60, macs:[] };
+
+    const div = document.createElement('div');
+    div.className = 'card';
+
+    let macsHTML = '';
+    (u.macs || []).forEach(mac => {
+      macsHTML += `
+        <div class="mac">
+          <span>${mac}</span>
+          <button onclick="delMac('${user}','${mac}')" class="delete">✕</button>
+        </div>
+      `;
+    });
+
+    div.innerHTML = `
+      <div class="user">${user}</div>
+
+      <div class="row">
+        <input id="quota-${user}" value="${u.quota}" type="number">
+        <button onclick="saveQuota('${user}')" class="action">💾</button>
+      </div>
+
+      ${macsHTML}
+
+      <div class="row">
+        <input id="mac-${user}" placeholder="MAC">
+        <button onclick="addMac('${user}')" class="action">+</button>
+      </div>
+
+      <div class="row">
+        <button onclick="delUser('${user}')" class="delete">Delete</button>
+      </div>
+    `;
+
+    list.appendChild(div);
+  }
+}
+
+async function save() {
+  await fetch('/cgi-bin/users-save', {
+    method:'POST',
+    body: JSON.stringify({
+      password: adminPassword,
+      data: users
+    })
+  });
+
+  localStorage.setItem('users_updated', Date.now());
+  setTimeout(load, 200);
+}
+
+function changePassword() {
+  const oldPass = document.getElementById('oldPass').value;
+  const newPass = document.getElementById('newPass').value;
+
+  if (oldPass !== adminPassword) {
+    alert("Wrong current password");
+    return;
+  }
+
+  if (!newPass) {
+    alert("Enter new password");
+    return;
+  }
+
+  adminPassword = newPass;
+  localStorage.setItem('admin_pass', newPass);
+
+  alert("Password updated");
+}
+
+function addUser() {
+  const name = document.getElementById('newUser').value.trim();
+  if (!name) return;
+
+  if (!users[name]) {
+    users[name] = { quota:60, macs:[] };
+    save();
+  }
+}
+
+function delUser(user) {
+  delete users[user];
+  save();
+}
+
+function addMac(user) {
+  const mac = document.getElementById('mac-'+user).value.toLowerCase().trim();
+  if (!mac) return;
+
+  if (!users[user].macs.includes(mac)) {
+    users[user].macs.push(mac);
+    save();
+  }
+}
+
+function delMac(user, mac) {
+  users[user].macs = users[user].macs.filter(m => m !== mac);
+  save();
+}
+
+function saveQuota(user) {
+  const val = parseFloat(document.getElementById('quota-'+user).value);
+  users[user].quota = isNaN(val) ? 0 : val;
+  save();
+}
+
+function saveMultiplier() {
+  const val = parseFloat(document.getElementById('multiplier').value);
+
+  if (isNaN(val) || val <= 0) {
+    alert("Invalid multiplier");
+    return;
+  }
+
+  users._multiplier = val;
+  save();
+}
+
+</script>
+
+</body>
+</html>

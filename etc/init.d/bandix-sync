@@ -1,0 +1,19 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+
+start() {
+
+    echo "[Bandix] starting..."
+
+    mkdir -p /www/data
+
+    [ -f /www/data/bandix-public.json ] || echo '{}' > /www/data/bandix-public.json
+
+    (
+        while true; do
+            /usr/bin/bandix-flush
+            sleep 300   # ?? shorter for testing (later back to 300)
+        done
+    ) &
+}

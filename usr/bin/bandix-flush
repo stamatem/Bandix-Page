@@ -1,0 +1,12 @@
+#!/bin/sh
+
+IN="/tmp/bandix-buffer.json"
+OUT="/www/data/bandix-public.json"
+TMP="/tmp/bandix-public.json"
+
+# no data ? exit
+[ ! -s "$IN" ] && exit 0
+
+# safe copy
+cp "$IN" "$TMP"
+mv "$TMP" "$OUT"

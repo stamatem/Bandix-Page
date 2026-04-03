@@ -1,0 +1,68 @@
+#!/bin/sh
+
+DATA_FILE="/www/data/users.json"
+TMP_FILE="/tmp/users.json.tmp"
+MAX_SIZE=65536
+PASSWORD="monitor84"
+
+read_post_data() {
+    if [ -n "$CONTENT_LENGTH" ]; then
+        read -r -n "$CONTENT_LENGTH" POST_DATA
+    else
+        POST_DATA=$(cat)
+    fi
+}
+
+respond() {
+    echo "Content-Type: application/json"
+    echo ""
+    echo "$1"
+}
+
+read_post_data
+
+# ? empty
+[ -n "$POST_DATA" ] || {
+    respond '{"status":"error","message":"empty"}'
+    exit 1
+}
+
+# ? too large
+SIZE=$(printf "%s" "$POST_DATA" | wc -c)
+if [ "$SIZE" -gt "$MAX_SIZE" ]; then
+    respond '{"status":"error","message":"too_large"}'
+    exit 1
+fi
+
+# ?? extract password
+PASS=$(echo "$POST_DATA" | jsonfilter -e '@.password')
+
+if [ "$PASS" != "$PASSWORD" ]; then
+    respond '{"status":"error","message":"unauthorized"}'
+    exit 1
+fi
+
+# ?? extract data
+DATA=$(echo "$POST_DATA" | jsonfilter -e '@.data')
+
+[ -n "$DATA" ] || {
+    respond '{"status":"error","message":"no_data"}'
+    exit 1
+}
+
+# Validate JSON
+echo "$DATA" | jsonfilter -e '@' >/dev/null 2>&1 || {
+    respond '{"status":"error","message":"invalid_json"}'
+    exit 1
+}
+
+# Ensure directory
+mkdir -p /www/data
+
+# Atomic write
+echo "$DATA" > "$TMP_FILE" && mv "$TMP_FILE" "$DATA_FILE"
+
+chmod 644 "$DATA_FILE"
+
+respond '{"status":"ok"}'
+exit 0
