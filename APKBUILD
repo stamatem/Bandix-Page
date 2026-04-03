@@ -1,18 +1,23 @@
 pkgname=bandix-page
-pkgver=1.0.0
+pkgver=1.0.2
 pkgrel=0
 pkgdesc="Bandix OpenWRT Web UI"
-url="https://github.com/yourusername/Bandix-Page"
+url="https://github.com/stamatem/Bandix-Page"
 arch="noarch"
 license="MIT"
 
 depends=""
-options="!check !tracedeps"
+makedepends=""
 subpackages=""
+
+options="!check !tracedeps !strip"
 
 install="bandix-page.post-install"
 
 builddir="$PWD"
+
+# 🔥 THIS LINE IS THE KEY
+export ABUILD_DISABLE_TRACEDepS=1
 
 package() {
     mkdir -p "$pkgdir/www"
