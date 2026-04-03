@@ -5,7 +5,8 @@ pkgdesc="Bandix OpenWRT Web UI"
 url="https://github.com/yourusername/Bandix-Page"
 arch="noarch"
 license="MIT"
-options="!check"
+
+options="!check !deps"
 
 install="bandix-page.post-install"
 
