@@ -1,19 +1,17 @@
 #!/bin/sh /etc/rc.common
 
 START=99
+USE_PROCD=1
 
-start() {
-
-    echo "[Bandix] starting..."
-
-    mkdir -p /www/data
-
-    [ -f /www/data/bandix-public.json ] || echo '{}' > /www/data/bandix-public.json
-
-    (
+start_service() {
+    procd_open_instance
+    procd_set_param command /bin/sh -c '
+        logger -t bandix "[Bandix-Page] running..."
         while true; do
-            /usr/bin/bandix-flush
-            sleep 300   # ?? shorter for testing (later back to 300)
+            /usr/bin/bandix-flush || logger -t bandix "flush failed"
+            sleep 120
         done
-    ) &
+    '
+    procd_set_param respawn
+    procd_close_instance
 }
