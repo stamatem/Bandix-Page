@@ -639,7 +639,7 @@ input:checked + .slider:before {
 </div>
 
 <div class="card">
-  <div class="user">🌐 Network</div>
+  <div class="user">🌐 DHCP Subnet</div>
   <div class="row">
     <input 
       id="network"
@@ -651,6 +651,25 @@ input:checked + .slider:before {
     >
 
     <button onclick="saveNetwork(this)" class="action">
+      <span>Save</span>
+    </button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="user">⏱ Refresh Time</div>
+  <div class="row">
+    <div class="mac-box">
+      <button onpointerdown="startRefreshStep(-1)" class="step-btn">−</button>
+
+      <input id="refresh" value="2" readonly>
+
+      <button onpointerdown="startRefreshStep(1)" class="step-btn">+</button>
+
+      <small>min</small>
+    </div>
+
+    <button onclick="saveRefresh(this)" class="action">
       <span>Save</span>
     </button>
   </div>
@@ -728,6 +747,47 @@ function formatNetwork(input) {
   });
 
   input.value = parts.join('.');
+}
+
+let refreshInterval = null;
+let refreshTimeout = null;
+let refreshStep = null;
+
+function changeRefresh(step) {
+  const input = document.getElementById('refresh');
+  let val = parseInt(input.value) || 1;
+
+  val += step;
+
+  if (val < 1) val = 1;
+  if (val > 60) val = 60;
+
+  input.value = val;
+}
+
+function startRefreshStep(step) {
+  stopRefreshStep();
+
+  refreshStep = step;
+  changeRefresh(step);
+
+  refreshTimeout = setTimeout(() => {
+    refreshInterval = setInterval(() => {
+      changeRefresh(refreshStep);
+    }, 80);
+  }, 300);
+}
+
+function stopRefreshStep() {
+  if (refreshTimeout) {
+    clearTimeout(refreshTimeout);
+    refreshTimeout = null;
+  }
+
+  if (refreshInterval) {
+    clearInterval(refreshInterval);
+    refreshInterval = null;
+  }
 }
 
 function changeMultiplier(step) {
@@ -852,6 +912,7 @@ async function load() {
 
   document.getElementById('multiplier').value = users._multiplier || 1.06;
   document.getElementById('network').value = users._network || "192.168.2";
+  document.getElementById('refresh').value = users._refresh || 2;
 
   const select = document.getElementById('noBlockUser');
   if (select) {
@@ -954,6 +1015,23 @@ async function load() {
 
     list.appendChild(div);
   }
+}
+
+async function saveRefresh(btn) {
+  const val = parseInt(document.getElementById('refresh').value);
+
+  if (!val || val < 1) {
+    alert("Invalid refresh time");
+    return;
+  }
+
+  startBtnLoading(btn);
+
+  users._refresh = val;
+
+  await saveAsync();
+
+  stopBtnLoading(btn);
 }
 
 async function togglePaid(user, checkbox) {
@@ -1394,6 +1472,9 @@ window.addEventListener('blur', stopStep);
 window.addEventListener('pointerup', stopMultiplierStep);
 window.addEventListener('pointercancel', stopMultiplierStep);
 window.addEventListener('blur', stopMultiplierStep);
+window.addEventListener('pointerup', stopRefreshStep);
+window.addEventListener('pointercancel', stopRefreshStep);
+window.addEventListener('blur', stopRefreshStep);
 </script>
 
 </body>
