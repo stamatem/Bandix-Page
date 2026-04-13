@@ -8,7 +8,9 @@ mkdir -p /www/data
 # Create default JSON files (if missing)
 [ -f /www/data/users.json ] || echo '{}' > /www/data/users.json
 [ -f /www/data/bandix-public.json ] || echo '{}' > /www/data/bandix-public.json
-[ -f /www/data/users-pay.json ] || echo '{}' > /www/data/users-pay.json
+if [ ! -f /www/data/users-pay.json ]; then
+    echo '{"password":"password","paid":{}}' > /www/data/users-pay.json
+fi
 
 # Fix permissions
 chmod 664 /www/data/*.json 2>/dev/null
