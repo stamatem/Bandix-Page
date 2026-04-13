@@ -1,9 +1,42 @@
 #!/bin/busybox sh
 
+echo "" > /tmp/bandix.log
+echo "RUN $(date)" >> /tmp/bandix.log
+
+# 🔒 ATOMIC LOCK
+LOCK="/tmp/bandix.lock"
+
+# remove stale lock
+if [ -d "$LOCK" ]; then
+    AGE=$(( $(date +%s) - $(stat -c %Y "$LOCK" 2>/dev/null || echo 0) ))
+    if [ "$AGE" -gt 30 ]; then
+        echo "[Bandix] REMOVE STALE LOCK" >> /tmp/bandix.log
+        rm -rf "$LOCK"
+    fi
+fi
+
+if ! mkdir "$LOCK" 2>/dev/null; then
+    echo "[Bandix] LOCKED" >> /tmp/bandix.log
+    exit 0
+fi
+
+cleanup() {
+    rm -rf "$LOCK"
+}
+trap cleanup EXIT INT TERM
+
 DATA_FILE="/www/data/users.json"
+PAY_FILE="/www/data/users-pay.json"
+
+# 🔐 load password from users-pay.json
+if [ -f "$PAY_FILE" ]; then
+    PASSWORD=$(jsonfilter -i "$PAY_FILE" -e '@.password')
+else
+    PASSWORD=""
+fi
+
 TMP_FILE="/tmp/users.json.tmp"
 MAX_SIZE=65536
-PASSWORD="monitor84"
 
 read_post_data() {
     if [ -n "$CONTENT_LENGTH" ]; then
@@ -19,30 +52,149 @@ respond() {
     echo "$1"
 }
 
+generate_users_ordered() {
+
+    FILE="$1"
+
+    jsonfilter -i "$FILE" -e '@' | \
+    tr '{},' '\n' | grep ':' | cut -d':' -f1 | tr -d '" ' | \
+    while read -r USER; do
+
+        # skip system keys
+        echo "$USER" | grep -q "^_" && continue
+
+        # skip numeric keys (THIS is your missing filter)
+        echo "$USER" | grep -Eq '^[0-9]+$' && continue
+
+        # must have macs array
+        TEST=$(jsonfilter -i "$FILE" -e "@.$USER.macs[0]" 2>/dev/null)
+        [ -z "$TEST" ] && continue
+
+        echo "$USER"
+    done
+}
+
+generate_users_fingerprint() {
+
+    FILE="$1"
+
+    generate_users_ordered "$FILE" | while read -r USER; do
+        MACS=$(jsonfilter -i "$FILE" -e "@.$USER.macs[*]" 2>/dev/null)
+        echo "$USER:$MACS"
+    done | sort | md5sum | cut -d' ' -f1
+}
+
+# 🔥 DHCP FUNCTION
+add_dhcp_leases() {
+
+    INDEX=0
+    while true; do
+        NAME=$(uci get dhcp.@host[$INDEX].name 2>/dev/null)
+        [ -z "$NAME" ] && break
+
+        TAG=$(uci get dhcp.@host[$INDEX].tag 2>/dev/null)
+
+        if [ "$TAG" = "bandix" ]; then
+            uci delete dhcp.@host[$INDEX]
+            continue
+        fi
+
+        INDEX=$((INDEX + 1))
+    done
+
+    USER_INDEX=0
+
+    USERS=$(generate_users_ordered "$DATA_FILE")
+
+    for USER in $USERS; do
+
+        BASE=$((20 + USER_INDEX * 10))
+        MAC_INDEX=0
+
+        while true; do
+
+            MAC=$(jsonfilter -i "$DATA_FILE" -e "@.$USER.macs[$MAC_INDEX]" 2>/dev/null)
+            [ -z "$MAC" ] && break
+
+            MAC_UP=$(echo "$MAC" | tr '[:lower:]' '[:upper:]')
+            IP="192.168.2.$((BASE + MAC_INDEX))"
+            NAME="${USER}-$((MAC_INDEX + 1))"
+
+            SECTION=$(uci add dhcp host)
+
+            uci set dhcp.$SECTION.name="$NAME"
+            uci add_list dhcp.$SECTION.mac="$MAC_UP"
+            uci set dhcp.$SECTION.ip="$IP"
+            uci set dhcp.$SECTION.leasetime='infinite'
+            uci set dhcp.$SECTION.tag='bandix'
+
+            MAC_INDEX=$((MAC_INDEX + 1))
+        done
+
+        [ "$MAC_INDEX" -gt 0 ] && USER_INDEX=$((USER_INDEX + 1))
+    done
+
+    uci commit dhcp || return 1
+
+    ubus call service reload '{"name":"dnsmasq"}' 2>/dev/null \
+        || /etc/init.d/dnsmasq restart \
+        || return 1
+
+    return 0
+}
+
+# -------------------------
+
 read_post_data
 
-# ? empty
+# 🧹 CLEANUP ACTION (before normal validation flow)
+ACTION=$(echo "$POST_DATA" | jsonfilter -e '@.action')
+
+if [ "$ACTION" = "cleanup" ]; then
+
+    PASS=$(echo "$POST_DATA" | jsonfilter -e '@.password')
+
+    [ "$PASS" = "$PASSWORD" ] || {
+        respond '{"status":"error","message":"unauthorized"}'
+        exit 1
+    }
+
+    echo "[Bandix] CLEANUP TRIGGERED" >> /tmp/bandix.log
+
+    rm -rf /usr/share/bandix/* 2>> /tmp/bandix.log
+
+    /etc/init.d/bandix restart >> /tmp/bandix.log 2>&1 || {
+        echo "[Bandix] restart failed" >> /tmp/bandix.log
+        respond '{"status":"error","message":"restart_failed"}'
+        exit 1
+    }
+
+    /usr/bin/bandix-flush >> /tmp/bandix.log 2>&1 || {
+        echo "[Bandix] flush failed" >> /tmp/bandix.log
+    }
+
+    respond '{"status":"ok"}'
+    exit 0
+fi
+
 [ -n "$POST_DATA" ] || {
     respond '{"status":"error","message":"empty"}'
     exit 1
 }
 
-# ? too large
 SIZE=$(printf "%s" "$POST_DATA" | wc -c)
-if [ "$SIZE" -gt "$MAX_SIZE" ]; then
+[ "$SIZE" -le "$MAX_SIZE" ] || {
     respond '{"status":"error","message":"too_large"}'
     exit 1
-fi
+}
 
-# ?? extract password
 PASS=$(echo "$POST_DATA" | jsonfilter -e '@.password')
 
-if [ "$PASS" != "$PASSWORD" ]; then
+[ "$PASS" = "$PASSWORD" ] || {
     respond '{"status":"error","message":"unauthorized"}'
     exit 1
-fi
+}
 
-# ?? extract data
 DATA=$(echo "$POST_DATA" | jsonfilter -e '@.data')
 
 [ -n "$DATA" ] || {
@@ -50,19 +202,46 @@ DATA=$(echo "$POST_DATA" | jsonfilter -e '@.data')
     exit 1
 }
 
-# Validate JSON
 echo "$DATA" | jsonfilter -e '@' >/dev/null 2>&1 || {
     respond '{"status":"error","message":"invalid_json"}'
     exit 1
 }
 
-# Ensure directory
 mkdir -p /www/data
 
-# Atomic write
-echo "$DATA" > "$TMP_FILE" && mv "$TMP_FILE" "$DATA_FILE"
+echo "$DATA" > "$TMP_FILE" || exit 1
+cp "$TMP_FILE" "$DATA_FILE" || exit 1
+rm -f "$TMP_FILE"
+sync
 
-chmod 644 "$DATA_FILE"
+[ -s "$DATA_FILE" ] || {
+    echo "[Bandix] ERROR: users.json empty" >> /tmp/bandix.log
+    exit 1
+}
+
+OLD_FP_FILE="/tmp/bandix_users.fp"
+
+NEW_FP="$(generate_users_fingerprint "$DATA_FILE")"
+echo "[Bandix] FP=$NEW_FP" >> /tmp/bandix.log
+OLD_FP="$(cat "$OLD_FP_FILE" 2>/dev/null)"
+
+if [ "$NEW_FP" != "$OLD_FP" ]; then
+    echo "[Bandix] USERS CHANGED -> rebuilding DHCP" >> /tmp/bandix.log
+
+    if add_dhcp_leases; then
+        echo "$NEW_FP" > "$OLD_FP_FILE"
+    else
+        echo "[Bandix] DHCP rebuild failed, fingerprint NOT updated" >> /tmp/bandix.log
+    fi
+else
+    echo "[Bandix] USERS unchanged -> skip DHCP rebuild" >> /tmp/bandix.log
+fi
+
+# ✅ APPLY QUOTA IMMEDIATELY
+/usr/bin/bandix-quota force >> /tmp/bandix.log 2>&1 || \
+echo "[Bandix] quota failed" >> /tmp/bandix.log
 
 respond '{"status":"ok"}'
 exit 0
+
+
