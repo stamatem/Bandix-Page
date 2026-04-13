@@ -7,19 +7,51 @@
 <title>Admin</title>
 
 <style>
-html, body {
-  height:100%;
-  margin:0;
-  padding:0;
-  background:#0b1220;
-  color:white;
-  font-family:sans-serif;
+html {
+  background: #020617;
+}
+
+body {
+  font-family: sans-serif;
+  color: #ffffff;
+
+  background: radial-gradient(circle at top left, #0f172a, #020617 70%);
+
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .container {
-  max-width:600px;
-  margin:auto;
-  padding:12px;
+  max-width: 600px;
+  margin: auto;
+  padding: 12px;
+}
+
+/* 💻 Desktop upgrade */
+@media (min-width: 900px) {
+  .container {
+    max-width: 1100px;   /* 🔥 wider */
+    padding: 20px;
+  }
+}
+
+/* 💻 Desktop grid layout */
+@media (min-width: 900px) {
+  .container {
+    display: grid;
+    grid-template-columns: 1fr 1fr; /* 2 columns */
+    gap: 20px;
+  }
+
+  .header {
+    grid-column: 1 / -1; /* full width */
+  }
+
+  #list {
+    grid-column: 1 / -1; /* user list full width */
+  }
 }
 
 .header {
@@ -35,32 +67,105 @@ h2 {
 }
 
 .nav-btn {
-  display:inline-flex;
-  align-items:center;
-  gap:6px;
-  background:#1e293b; /* same as .card */
-  padding:10px 14px;
-  border-radius:12px;
-  color:white;
-  text-decoration:none;
-  font-size:16px; /* match "Change Password" */
-  font-weight:bold;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+
+  padding: 12px 18px;
+  border-radius: 16px;
+
+  color: white;
+  text-decoration: none;
+  font-size: 18px;
+  font-weight: 600;
+
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(14px);
+
+  border: 1px solid rgba(96,165,250,0.25);
+
+  box-shadow:
+    0 0 20px rgba(59,130,246,0.3),
+    0 0 40px rgba(59,130,246,0.15),
+    inset 0 0 10px rgba(255,255,255,0.05);
+
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
+.nav-btn::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: 16px;
+
+  background: linear-gradient(
+    120deg,
+    rgba(59,130,246,0.6),
+    rgba(168,85,247,0.4),
+    rgba(59,130,246,0.6)
+  );
+
+  opacity: 0.25;
+  filter: blur(8px);
+  z-index: -1;
+}
+
+/* 🔵 Glass cards (same as Usage page) */
 .card {
-  background:#1e293b;
-  padding:14px;
-  margin-bottom:12px;
-  border-radius:12px;
+  position: relative;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+
+  background: rgba(15, 23, 42, 0.7);   /* SAME as usage */
+  backdrop-filter: blur(14px);
+
+  border-radius: 18px;
+  padding: 16px;
+  margin-bottom: 16px;
+
+  border: 1px solid rgba(96,165,250,0.25);
+
+  box-shadow:
+    0 0 25px rgba(59,130,246,0.25),
+    0 0 60px rgba(59,130,246,0.15),
+    inset 0 0 15px rgba(255,255,255,0.04);
+}
+
+/* glowing border aura */
+.card::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: 18px;
+
+  background: linear-gradient(
+    120deg,
+    rgba(59,130,246,0.6),
+    rgba(168,85,247,0.4),
+    rgba(59,130,246,0.6)
+  );
+
+  opacity: 0.25;
+  filter: blur(8px);
+  z-index: -1;
+}
+
+/* hover effect */
+.card:hover {
+  transform: translateY(-4px) scale(1.01);
+
+  box-shadow:
+    0 0 40px rgba(59,130,246,0.45),
+    0 0 80px rgba(59,130,246,0.25),
+    inset 0 0 20px rgba(255,255,255,0.05);
 }
 
 .user {
-  font-size:16px;
+  font-size:20px;
   font-weight:bold;
   margin-bottom:8px;
 }
 
-/* ✅ PERFECT ROW ALIGNMENT */
 .row {
   display:flex;
   gap:6px;
@@ -70,77 +175,417 @@ h2 {
 
 input {
   flex:1;
-  padding:8px;
+  padding:12px;          /* was 8px */
   border-radius:8px;
   border:none;
   background:#0f172a;
   color:white;
+  font-size:18px;        /* 🔥 NEW */
 }
 
-/* ✅ BUTTON COLUMN SYSTEM */
-button {
-  width:70px;
-  height:36px;
-  border:none;
-  border-radius:8px;
-  background:#334155;
-  color:white;
-  cursor:pointer;
-  display:flex;
-  align-items:center;
-  justify-content:center;
+select {
+  font-size:18px;
+  padding:10px;
 }
 
-button:hover {
-  background:#475569;
+input::placeholder {
+  color:#94a3b8;
+  opacity:1;
+  font-size:16px;
 }
 
-.action {
-  background:#16a34a;
+button.action,
+button.plus-btn,
+button.delete {
+  box-shadow:
+    0 4px 10px rgba(0,0,0,0.4),
+    inset 0 1px 0 rgba(255,255,255,0.2);
 }
 
-.action:hover {
-  background:#15803d;
-}
-
-.delete {
-  background:#7f1d1d;
-}
-
-.delete:hover {
-  background:#991b1b;
-}
-
-/* ✅ MAC ROW ALIGNMENT */
 .mac {
   display:flex;
   align-items:center;
-  gap:6px;
-  margin-top:4px;
+  gap:8px;
+  margin-top:6px;
+}
+
+.mac-box {
+  flex:1;
+  display:flex;
+  align-items:center;
+  justify-content: center;  /* ✅ FIXED */
+  gap: 8px;                 /* ✅ spacing between - number + */
+  background:#0b1a33;
+  padding:0 12px;
+  height:48px;
+  border-radius:10px;
+}
+
+.mac-box span {
+  font-size:20px;
+  font-weight:550;
+  letter-spacing: 0.5px;
+}
+
+.mac-box input {
+  height:100%;
+  display:flex;
+  align-items:center;
+  background:transparent;
+  border:none;
+  outline:none;
+  color:white;
+  font-size:20px;
+  font-weight:550;
+
+  width:60px;          /* ✅ fixed width */
+  text-align:center;   /* ✅ center number */
+}
+
+.mac-box small {
+  font-size:20px;
+  font-weight:550;
+  opacity:0.9;
+  margin-left:10px;
+  font-height:500;
+}
+
+/* plus button */
+.plus-btn {
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  width:70px;
+  height:48px;
+  font-weight:bold;
+  line-height:1;
 }
 
 .mac span {
   flex:1;
   background:#0f172a;
-  padding:6px 8px;
+  padding:10px 12px;   /* bigger box */
   border-radius:8px;
-  font-size:12px;
+  font-size:16px;      /* 🔥 bigger text */
 }
 
 .hidden { display:none; }
 
+/* 🔐 Glass login card */
 #loginBox {
-  max-width:400px;
-  margin:100px auto;
-  background:#1e293b;
-  padding:20px;
-  border-radius:12px;
-  text-align:center;
+  display: flex;
+  flex-direction: column;
+  align-items: center; /* ✅ FIXED */
+  gap: 12px;
+
+  max-width: 400px;
+  width: 90%;
+
+  margin: 0; /* ❌ remove 100px auto */
+
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(14px);
+
+  padding: 20px;
+  border-radius: 18px;
+  text-align: center;
+
+  border: 1px solid rgba(96,165,250,0.25);
+
+  box-shadow:
+    0 0 25px rgba(59,130,246,0.25),
+    0 0 60px rgba(59,130,246,0.15),
+    inset 0 0 15px rgba(255,255,255,0.04);
+
+  position: relative;
+}
+
+/* glowing aura border */
+#loginBox::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: 18px;
+
+  background: linear-gradient(
+    120deg,
+    rgba(59,130,246,0.6),
+    rgba(168,85,247,0.4),
+    rgba(59,130,246,0.6)
+  );
+
+  opacity: 0.25;
+  filter: blur(8px);
+  z-index: -1;
+}
+
+#loginBox input,
+#loginBox button {
+  width: 100%;
+  max-width: 320px;
+  box-sizing: border-box;
+}
+
+#loginBox input {
+  width: 100%;
+  max-width: 320px;
+
+  background:#0f172a;
+  color:white;
+
+  border-radius:10px;
+  border:none;
+  outline:none;
+
+  padding:12px;
+  font-size:18px;
+
+  text-align: center;     /* ⭐ centers the dots */
 }
 
 #loginBox button {
-  display: block;
-  margin: 10px auto 0;
+  height:48px;
+  font-size:18px;
+  border-radius:12px;
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  box-shadow:
+    0 0 12px rgba(34,197,94,0.6),
+    0 4px 10px rgba(0,0,0,0.4);
+}
+
+/* 🔥 center delete button row */
+.row.center {
+  justify-content:center;
+  width:100%;          /* 🔥 ensure full width */
+}
+
+.row.center .delete {
+  width:70%;           /* 🔥 adjust width (70–90% as you like) */
+  height:44px;
+  font-size:18px;
+  border-radius:12px;
+}
+
+#loginBox h2 {
+  font-size: 28px;
+}
+
+button.loading {
+  pointer-events: none;
+  opacity: 0.9;
+  color: transparent;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 🔥 real spinner element */
+button.loading .spinner {
+  width: 20px;
+  height: 20px;
+  border: 3px solid rgba(255,255,255,0.3);
+  border-top: 3px solid white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+button {
+  width:70px;
+  height:48px;
+  border:none;
+  border-radius:12px;
+  color:white;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:18px;
+  font-weight:bold;
+  line-height:1;
+
+  transition: all 0.2s ease;
+}
+
+/* 🟢 GREEN buttons */
+button.action,
+button.plus-btn {
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  box-shadow:
+    0 0 10px rgba(34,197,94,0.6),
+    0 4px 10px rgba(0,0,0,0.4);
+}
+
+/* 🔴 RED buttons */
+button.delete {
+  background: linear-gradient(135deg, #ef4444, #b91c1c);
+  box-shadow:
+    0 0 10px rgba(239,68,68,0.6),
+    0 4px 10px rgba(0,0,0,0.4);
+}
+
+button:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.1);
+
+  box-shadow:
+    0 0 16px currentColor,
+    0 6px 14px rgba(0,0,0,0.5);
+}
+
+  box-shadow:
+    0 0 6px rgba(0,0,0,0.6),
+    inset 0 0 8px rgba(0,0,0,0.6);
+}
+
+.mac {
+  gap: 10px;
+}
+
+button:active {
+  transform: scale(0.96);
+  box-shadow:
+    0 2px 4px rgba(0,0,0,0.4),
+    inset 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.mac-box {
+  flex: 1;
+}
+
+/* 📊 Usage button — dark blue glow */
+a.nav-btn[href="/data/usage/"] {
+  background: linear-gradient(135deg, #1e293b, #0f172a);
+
+  box-shadow:
+    0 0 10px rgba(59,130,246,0.5),   /* blue glow */
+    0 4px 10px rgba(0,0,0,0.4);
+
+  transition: all 0.2s ease;
+}
+
+a.nav-btn[href="/data/usage/"]:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.1);
+
+  box-shadow:
+    0 0 16px rgba(59,130,246,0.9),
+    0 6px 14px rgba(0,0,0,0.5);
+}
+
+a.nav-btn[href="/data/usage/"]:active {
+  transform: scale(0.95);
+
+  box-shadow:
+    0 0 6px rgba(0,0,0,0.6),
+    inset 0 0 8px rgba(0,0,0,0.6);
+}
+
+.step-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: none;
+  cursor: pointer;
+
+  font-size: 20px;
+  font-weight: bold;
+
+  background: linear-gradient(135deg, #1e293b, #0f172a);
+
+  box-shadow:
+    0 0 6px rgba(59,130,246,0.4),
+    inset 0 0 6px rgba(255,255,255,0.05);
+
+  color: white;
+}
+
+.step-btn:hover {
+  transform: scale(1.1);
+}
+
+.step-btn {
+  touch-action: none;
+  user-select: none;
+}
+
+/* remove default number arrows */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type=number] {
+  -moz-appearance: textfield;
+}
+
+#multiplier {
+  font-size: 20px;   /* ✅ prevents iOS zoom */
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-align: center;
+  pointer-events: none;   /* 🔥 THIS is key */
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 46px;
+  height: 26px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background-color: #374151;
+  border-radius: 999px;
+  transition: 0.25s;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 20px;
+  width: 20px;
+  left: 3px;
+  top: 3px;
+  background: white;
+  border-radius: 50%;
+  transition: 0.25s;
+}
+
+input:checked + .slider {
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  box-shadow: 0 0 10px rgba(34,197,94,0.7);
+}
+
+input:checked + .slider:before {
+  transform: translateX(20px);
+}
+
+.switch input:checked + .slider {
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  box-shadow:
+    0 0 8px rgba(34,197,94,0.8),
+    0 0 20px rgba(34,197,94,0.4);
+}
+
+@media (max-width:480px) {
+ .nav-btn {
+    font-size:17px;
+    padding:10px 12px;
+    gap:4px;
+  }
 }
 </style>
 </head>
@@ -156,18 +601,20 @@ button:hover {
 <div id="adminPanel" class="container hidden">
 
 <div class="header">
-  <div class="nav-btn">🔐 Admin</div>
+  <div class="nav-btn">
+    🔐 Admin
+    <span id="statusDot" style="margin-left:6px;">⚪</span>
+    <span id="statusTime" style="font-size:12px; opacity:0.7; margin-left:4px;"></span>
+  </div>
+
   <a href="/data/usage/" class="nav-btn">📊 Usage</a>
 </div>
 
-<!-- PASSWORD -->
 <div class="card">
   <div class="user">🔑 Change Password</div>
-
   <div class="row">
     <input id="oldPass" type="password" placeholder="Current password">
   </div>
-
   <div class="row">
     <input id="newPass" type="password" placeholder="New password">
     <button onclick="changePassword()" class="action">Save</button>
@@ -176,20 +623,48 @@ button:hover {
 
 <div class="card">
   <div class="user">📊 Multiplier</div>
-
   <div class="row">
-    <input id="multiplier" type="number" step="0.01" placeholder="e.g. 1.2">
-    <button onclick="saveMultiplier()" class="action">Save</button>
+    <div class="mac-box">
+      <button onpointerdown="startMultiplierStep(-1)" class="step-btn">−</button>
+
+      <input id="multiplier" value="1.06" readonly>
+
+      <button onpointerdown="startMultiplierStep(1)" class="step-btn">+</button>
+    </div>
+
+    <button onclick="saveMultiplier(this)" class="action">
+      <span>Save</span>
+    </button>
   </div>
 </div>
 
-<!-- NEW USER -->
+<div class="card">
+  <div class="user">🛡 Admin User</div>
+  <div class="row">
+    <select id="noBlockUser" style="flex:1; padding:8px; border-radius:8px; background:#0f172a; color:white;"></select>
+    <button onclick="saveNoBlock(this)" class="action">
+      <span>Save</span>
+    </button>
+  </div>
+</div>
+
 <div class="card">
   <div class="user">➕ New User</div>
-
   <div class="row">
     <input id="newUser" placeholder="New user">
-    <button onclick="addUser()" class="action">Add</button>
+    <button onclick="addUser(this)" class="action">
+      <span>Add</span>
+    </button>
+  </div>
+</div>
+
+<div class="card" style="grid-column: 1 / -1;">
+  <div class="user">⚠️ Reset All Traffic Data</div>
+
+  <div class="row center">
+    <button onclick="cleanupBandix(this)" class="delete">
+      Reset All Traffic Data
+    </button>
   </div>
 </div>
 
@@ -198,22 +673,111 @@ button:hover {
 </div>
 
 <script>
-let adminPassword = localStorage.getItem('admin_pass') || "monitor84";
+let adminPassword = localStorage.getItem('admin_pass') || "";
 
-function login() {
+function startBtnLoading(btn) {
+  if (!btn) return;
+
+  btn.classList.add('loading');
+
+  // remove text
+  btn.dataset.original = btn.innerHTML;
+  btn.innerHTML = '<div class="spinner"></div>';
+}
+
+let multiplierInterval = null;
+let multiplierTimeout = null;
+let multiplierStep = null;
+
+function changeMultiplier(step) {
+  const input = document.getElementById('multiplier');
+  let val = parseFloat(input.value) || 0;
+
+  val += step * 0.01;
+
+  // keep 2 decimals clean (no 1.009999 crap)
+  val = Math.round(val * 100) / 100;
+
+  if (val < 0) val = 0;
+
+  input.value = val.toFixed(2);
+}
+
+function startMultiplierStep(step) {
+  stopMultiplierStep();
+
+  multiplierStep = step;
+
+  changeMultiplier(step);
+
+  multiplierTimeout = setTimeout(() => {
+    multiplierInterval = setInterval(() => {
+      changeMultiplier(multiplierStep);
+    }, 80);
+  }, 300);
+}
+
+function stopMultiplierStep() {
+  if (multiplierTimeout) {
+    clearTimeout(multiplierTimeout);
+    multiplierTimeout = null;
+  }
+
+  if (multiplierInterval) {
+    clearInterval(multiplierInterval);
+    multiplierInterval = null;
+  }
+}
+
+function stopBtnLoading(btn) {
+  if (!btn) return;
+
+  btn.classList.remove('loading');
+
+  // restore text
+  if (btn.dataset.original) {
+    btn.innerHTML = btn.dataset.original;
+  }
+}
+
+async function login() {
   const pass = document.getElementById('pass').value;
 
-  if (pass !== adminPassword) {
+  const res = await fetch('/cgi-bin/users-pay', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: "get" })
+  });
+
+  const text = await res.text();
+  const data = JSON.parse(text.slice(text.indexOf('{')));
+
+  if (pass.trim() !== String(data.password).trim()) {
     alert("Wrong password");
     return;
   }
 
+  adminPassword = pass;
+  localStorage.setItem('admin_pass', pass);
+
   document.getElementById('loginBox').style.display = 'none';
   document.getElementById('adminPanel').classList.remove('hidden');
+
   load();
+  checkQuotaScript();
 }
 
 let users = {};
+
+function enforceFirstUserRule() {
+  const realUsers = Object.keys(users).filter(u => !u.startsWith("_"));
+
+  // If exactly 1 user and no admin set → make it admin
+  if (realUsers.length === 1 && !users._no_block) {
+    users._no_block = realUsers[0];
+    console.log("Auto-set first user as admin:", realUsers[0]);
+  }
+}
 
 async function load() {
   const res = await fetch('/data/users.json?t=' + Date.now());
@@ -221,49 +785,128 @@ async function load() {
 
   try {
     users = text ? JSON.parse(text) : {};
+    enforceFirstUserRule();
   } catch (e) {
     users = {};
   }
 
-document.getElementById('multiplier').value = users._multiplier || 1.2;
+  // 🔥 LOAD PAID USERS
+  try {
+    const res2 = await fetch('/cgi-bin/users-pay', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: "get" })
+    });
+
+    const text2 = await res2.text();
+    const data2 = JSON.parse(text2.slice(text2.indexOf('{')));
+
+    paidUsers = data2.paid || {};
+
+  } catch (e) {
+    paidUsers = {};
+  }
+
+  // -------------------------
+
+  document.getElementById('multiplier').value = users._multiplier || 1.06;
+
+  const select = document.getElementById('noBlockUser');
+  if (select) {
+    select.innerHTML = '';
+
+    for (let user in users) {
+      if (user.startsWith("_")) continue;
+
+      const opt = document.createElement('option');
+      opt.value = user;
+      opt.innerText = user;
+
+      if (users._no_block === user) {
+        opt.selected = true;
+      }
+
+      select.appendChild(opt);
+    }
+  }
 
   const list = document.getElementById('list');
   list.innerHTML = '';
 
   for (let user in users) {
-    if (user === "_multiplier") continue;
+    if (user.startsWith("_")) continue;
+
     const u = users[user] || { quota:60, macs:[] };
 
-    const div = document.createElement('div');
-    div.className = 'card';
+    const isPaid = !!paidUsers[user];
 
     let macsHTML = '';
     (u.macs || []).forEach(mac => {
       macsHTML += `
         <div class="mac">
-          <span>${mac}</span>
-          <button onclick="delMac('${user}','${mac}')" class="delete">✕</button>
+          <div class="mac-box">
+            <span>${mac}</span>
+          </div>
+
+          <button onclick="delMac('${user}','${mac}', this)" class="delete">x</button>
         </div>
       `;
     });
 
-    div.innerHTML = `
-      <div class="user">${user}</div>
+    const div = document.createElement('div');
+    div.className = 'card';
 
-      <div class="row">
-        <input id="quota-${user}" value="${u.quota}" type="number">
-        <button onclick="saveQuota('${user}')" class="action">💾</button>
+    div.innerHTML = `
+      <div class="user" style="display:flex; align-items:center; gap:12px;">      
+        <span>${user}</span>
+
+        <!-- 🔥 iPhone Toggle -->
+        <div style="display:flex; align-items:center; gap:6px;">
+          <span style="font-size:30px;">💵</span>
+
+          <label class="switch">
+            <input type="checkbox"
+                   ${isPaid ? 'checked' : ''}
+                   onchange="togglePaid('${user}', this)">
+          <span class="slider"></span>
+        </label>
+      </div>
       </div>
 
+      <!-- QUOTA -->
+      <div class="mac">
+        <div class="mac-box">
+          <button onpointerdown="startStep('${user}', -1)" class="step-btn">−</button>
+
+          <input id="quota-${user}" value="${u.quota}" type="number">
+
+          <button onpointerdown="startStep('${user}', 1)" class="step-btn">+</button>
+
+          <small>GB</small>
+        </div>
+
+        <button onclick="saveQuota('${user}', this)" class="action">Save</button>
+      </div>
+
+      <!-- ADD MAC -->
+      <div class="mac">
+        <div class="mac-box">
+          <input 
+            id="mac-${user}" 
+            placeholder="aa:bb:cc:dd:ee:ff"
+            oninput="formatMac(this)"
+            onkeydown="handleMacKey(event, this)">
+        </div>
+
+        <button onclick="addMac('${user}', this)" class="action plus-btn">Add</button>
+      </div>
+
+      <!-- EXISTING MACS -->
       ${macsHTML}
 
-      <div class="row">
-        <input id="mac-${user}" placeholder="MAC">
-        <button onclick="addMac('${user}')" class="action">+</button>
-      </div>
-
-      <div class="row">
-        <button onclick="delUser('${user}')" class="delete">Delete</button>
+      <!-- DELETE USER -->
+      <div class="row center">
+        <button onclick="delUser('${user}', this)" class="delete">Delete User</button>
       </div>
     `;
 
@@ -271,20 +914,311 @@ document.getElementById('multiplier').value = users._multiplier || 1.2;
   }
 }
 
-async function save() {
-  await fetch('/cgi-bin/users-save', {
-    method:'POST',
+async function togglePaid(user, checkbox) {
+
+  const value = checkbox.checked;
+
+  const res = await fetch('/cgi-bin/users-pay', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
+      action: "set_paid",
       password: adminPassword,
-      data: users
+      user: user,
+      value: value
     })
   });
 
-  localStorage.setItem('users_updated', Date.now());
-  setTimeout(load, 200);
+  const text = await res.text();
+  const data = JSON.parse(text.slice(text.indexOf('{')));
+
+  if (data.status === "ok") {
+    paidUsers[user] = value;
+  } else {
+    alert("Failed");
+
+    // revert UI
+    checkbox.checked = !value;
+  }
 }
 
-function changePassword() {
+/* 🔥 FIXED SAVE (DEBOUNCE) */
+let saveTimer = null;
+let saving = false;
+let pendingSave = false;
+
+async function saveAsync() {
+  if (saving) {
+    pendingSave = true;
+    return;
+  }
+
+  saving = true;
+
+  try {
+    do {
+      pendingSave = false;
+
+      const res = await fetch('/cgi-bin/users-save', {
+        method:'POST',
+        body: JSON.stringify({
+          password: adminPassword,
+          data: users
+        })
+      });
+
+      if (!res.ok) {
+        throw new Error("Server error");
+      }
+
+    } while (pendingSave);
+
+  } catch (e) {
+    console.error("Save failed:", e);
+    alert("Save failed");
+  }
+
+  saving = false;
+
+  await load();
+}
+
+async function saveQuota(user, btn) {
+  startBtnLoading(btn);
+
+  const val = parseFloat(document.getElementById('quota-'+user).value);
+  users[user].quota = Math.max(0, val || 0);
+
+  await saveAsync();
+
+  stopBtnLoading(btn);
+}
+
+let stepInterval = null;
+let stepTimeout = null;
+let currentStep = null;
+let currentUser = null;
+
+function changeQuota(user, step) {
+  const input = document.getElementById('quota-' + user);
+  let val = parseFloat(input.value) || 0;
+
+  val += step;
+  if (val < 0) val = 0;
+
+  input.value = val;
+
+  // 🔥 HAPTIC FEEDBACK
+  if (navigator.vibrate) {
+    navigator.vibrate(10); // small tap
+  }
+}
+
+function startStep(user, step) {
+  stopStep(); // always reset first
+
+  currentUser = user;
+  currentStep = step;
+
+  // instant click
+  changeQuota(user, step);
+
+  // delayed repeat
+  stepTimeout = setTimeout(() => {
+    stepInterval = setInterval(() => {
+      changeQuota(currentUser, currentStep);
+    }, 80);
+  }, 300);
+}
+
+function stopStep() {
+  if (stepTimeout) {
+    clearTimeout(stepTimeout);
+    stepTimeout = null;
+  }
+
+  if (stepInterval) {
+    clearInterval(stepInterval);
+    stepInterval = null;
+  }
+
+  currentUser = null;
+  currentStep = null;
+}
+
+async function addMac(user, btn) {
+  const mac = document.getElementById('mac-'+user).value.toLowerCase().trim();
+  if (!mac) return;
+
+  // ✅ ADD THIS BLOCK HERE
+  const macRegex = /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/;
+  if (!macRegex.test(mac)) {
+    alert("Invalid MAC address");
+    return;
+  }
+
+  startBtnLoading(btn);
+
+  if (!users[user].macs.includes(mac)) {
+    users[user].macs.push(mac);
+    await saveAsync();
+  }
+
+  stopBtnLoading(btn);
+}
+
+function formatMac(input) {
+  let value = input.value.toLowerCase();
+
+  // keep only hex
+  value = value.replace(/[^0-9a-f]/g, '').substring(0, 12);
+
+  let formatted = '';
+
+  for (let i = 0; i < value.length; i++) {
+    formatted += value[i];
+
+    if (i % 2 === 1 && i < 11) {
+      formatted += ':';
+    }
+  }
+
+  input.value = formatted;
+}
+
+function handleMacKey(e, input) {
+  const pos = input.selectionStart;
+
+  // 👉 skip forward over :
+  if (e.key.length === 1 && /[0-9a-fA-F]/.test(e.key)) {
+    if (input.value[pos] === ':') {
+      input.selectionStart = input.selectionEnd = pos + 1;
+    }
+  }
+
+  // 👉 backspace skip over :
+  if (e.key === 'Backspace') {
+    if (pos > 0 && input.value[pos - 1] === ':') {
+      e.preventDefault();
+      input.selectionStart = input.selectionEnd = pos - 1;
+    }
+  }
+}
+
+async function delMac(user, mac, btn) {
+  startBtnLoading(btn);
+
+  users[user].macs = users[user].macs.filter(m => m !== mac);
+
+  await saveAsync();
+
+  stopBtnLoading(btn);
+}
+
+async function delUser(user, btn) {
+  startBtnLoading(btn);
+
+  delete users[user];
+
+  await saveAsync();
+
+  stopBtnLoading(btn);
+}
+
+async function addUser(btn) {
+  const name = document.getElementById('newUser').value.trim().replace(/\s+/g, "_");
+  if (!name) return;
+
+  startBtnLoading(btn);
+
+  if (!users[name]) {
+    users[name] = { quota:60, macs:[] };
+
+    const realUsers = Object.keys(users).filter(u => !u.startsWith("_"));
+    if (realUsers.length === 1) {
+      users._no_block = name;
+    }
+
+    await saveAsync();
+  }
+
+  stopBtnLoading(btn);
+}
+
+async function cleanupBandix(btn) {
+  if (!confirm("⚠️ This will delete all files in /usr/share/bandix. Continue?")) return;
+  if (!confirm("🚨 FINAL WARNING: This cannot be undone. Continue?")) return;
+
+  const original = btn.innerHTML;
+
+  try {
+    btn.classList.add('loading');
+
+    // 🔄 STEP 1: Deleting
+    btn.innerHTML = `<span>Deleting...</span>`;
+
+    // small delay so user actually sees it
+    await new Promise(r => setTimeout(r, 300));
+
+    const res = await fetch('/cgi-bin/users-save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: "cleanup",
+        password: adminPassword
+      })
+    });
+
+    // 🔄 STEP 2: Restarting
+    btn.innerHTML = `<span>Restarting...</span>`;
+
+    await new Promise(r => setTimeout(r, 400));
+
+    const text = await res.text();
+    const data = JSON.parse(text.slice(text.indexOf('{')));
+
+    if (data.status === "ok") {
+      // ✅ STEP 3: Done
+      btn.innerHTML = `<span>Done</span>`;
+
+      // subtle success pause
+      await new Promise(r => setTimeout(r, 1000));
+
+    } else {
+      throw new Error(data.message || "failed");
+    }
+
+  } catch (e) {
+    console.error("Cleanup failed:", e);
+
+    btn.innerHTML = `<span>Error</span>`;
+
+    await new Promise(r => setTimeout(r, 1200));
+  }
+
+  // 🔁 restore
+  btn.innerHTML = original;
+  btn.classList.remove('loading');
+}
+
+async function saveMultiplier(btn) {
+  const val = parseFloat(document.getElementById('multiplier').value);
+
+  if (isNaN(val) || val <= 0) {
+    alert("Invalid multiplier");
+    return;
+  }
+
+  startBtnLoading(btn);
+
+  users._multiplier = val;
+
+  await saveAsync();
+
+  stopBtnLoading(btn);
+}
+
+async function changePassword() {
   const oldPass = document.getElementById('oldPass').value;
   const newPass = document.getElementById('newPass').value;
 
@@ -298,61 +1232,107 @@ function changePassword() {
     return;
   }
 
-  adminPassword = newPass;
-  localStorage.setItem('admin_pass', newPass);
+  try {
+    const res = await fetch('/cgi-bin/users-pay', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: "set_password",
+        password: adminPassword,
+        new: newPass
+      })
+    });
 
-  alert("Password updated");
-}
+    const data = await res.json();
 
-function addUser() {
-  const name = document.getElementById('newUser').value.trim();
-  if (!name) return;
+    if (data.status === "ok") {
+      adminPassword = newPass;
+      localStorage.setItem('admin_pass', newPass);
 
-  if (!users[name]) {
-    users[name] = { quota:60, macs:[] };
-    save();
+      // ✅ clear inputs
+      document.getElementById('oldPass').value = '';
+      document.getElementById('newPass').value = '';
+
+      // ✅ success prompt
+      alert("✅ Password changed successfully");
+
+    } else {
+      alert("❌ Failed to change password");
+    }
+
+  } catch (e) {
+    alert("⚠️ Error: " + e.message);
   }
 }
 
-function delUser(user) {
-  delete users[user];
-  save();
-}
+async function checkQuotaScript() {
+  try {
+    const res = await fetch('/cgi-bin/bandix-status?t=' + Date.now());
+    const data = await res.json();
 
-function addMac(user) {
-  const mac = document.getElementById('mac-'+user).value.toLowerCase().trim();
-  if (!mac) return;
+    const dot = document.getElementById('statusDot');
+    const time = document.getElementById('statusTime');
 
-  if (!users[user].macs.includes(mac)) {
-    users[user].macs.push(mac);
-    save();
+    if (data.status !== "ok") {
+      dot.innerHTML = '⚪';
+      time.innerHTML = '';
+      return;
+    }
+
+    const last = data.ts * 1000;
+    const now = Date.now();
+
+    const diff = now - last;
+    const TEN_MIN = 10 * 60 * 1000;
+
+    const date = new Date(last);
+    
+    const formatted = date.toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+
+    time.innerHTML = "Last Quota: " + formatted;
+
+    if (diff < TEN_MIN) {
+      dot.innerHTML = '🟢';
+    } else {
+      dot.innerHTML = '🔴';
+    }
+
+  } catch (e) {
+    document.getElementById('statusDot').innerHTML = '⚪';
+    document.getElementById('statusTime').innerHTML = '';
   }
 }
 
-function delMac(user, mac) {
-  users[user].macs = users[user].macs.filter(m => m !== mac);
-  save();
+async function saveNoBlock(btn) {
+  users._no_block = document.getElementById('noBlockUser').value;
+
+  startBtnLoading(btn);
+  await saveAsync();
+  stopBtnLoading(btn);
 }
 
-function saveQuota(user) {
-  const val = parseFloat(document.getElementById('quota-'+user).value);
-  users[user].quota = isNaN(val) ? 0 : val;
-  save();
-}
+// run when page loads
+window.addEventListener('load', () => {
+  checkQuotaScript();
+});
 
-function saveMultiplier() {
-  const val = parseFloat(document.getElementById('multiplier').value);
+// run every 5 seconds
+setInterval(checkQuotaScript, 5000);
 
-  if (isNaN(val) || val <= 0) {
-    alert("Invalid multiplier");
-    return;
-  }
-
-  users._multiplier = val;
-  save();
-}
-
+window.addEventListener('pointerup', stopStep);
+window.addEventListener('pointercancel', stopStep);
+window.addEventListener('blur', stopStep);
+window.addEventListener('pointerup', stopMultiplierStep);
+window.addEventListener('pointercancel', stopMultiplierStep);
+window.addEventListener('blur', stopMultiplierStep);
 </script>
 
 </body>
 </html>
+
+
+
