@@ -1,0 +1,128 @@
+#!/bin/busybox sh
+
+DATA_FILE="/www/data/users-pay.json"
+TMP_FILE="/tmp/users-pay.json.tmp"
+
+read_post_data() {
+    if [ -n "$CONTENT_LENGTH" ]; then
+        read -r -n "$CONTENT_LENGTH" POST_DATA
+    else
+        POST_DATA=""
+    fi
+
+    # fallback to GET
+    if [ -z "$POST_DATA" ]; then
+        POST_DATA="$QUERY_STRING"
+    fi
+}
+
+respond() {
+    printf "Content-Type: application/json\r\n\r\n%s" "$1"
+}
+
+# create file if missing
+init_file() {
+    [ -f "$DATA_FILE" ] && return
+    mkdir -p /www/data
+    echo '{"password":"monitor84","paid":{}}' > "$DATA_FILE"
+}
+
+# --------------------
+
+init_file
+read_post_data
+
+# detect GET vs POST
+if echo "$POST_DATA" | grep -q '='; then
+    ACTION=$(echo "$POST_DATA" | sed -n 's/^action=\([^&]*\).*/\1/p')
+else
+    ACTION=$(echo "$POST_DATA" | jsonfilter -e '@.action')
+fi
+
+# =========================
+# GET DATA
+# =========================
+if [ "$ACTION" = "get" ]; then
+    respond "$(cat "$DATA_FILE")"
+    exit 0
+fi
+
+# =========================
+# AUTH REQUIRED
+# =========================
+PASS=$(echo "$POST_DATA" | jsonfilter -e '@.password')
+REAL_PASS=$(jsonfilter -i "$DATA_FILE" -e '@.password')
+
+[ "$PASS" = "$REAL_PASS" ] || {
+    respond '{"status":"error","message":"unauthorized"}'
+    exit 1
+}
+
+# =========================
+# SET PAID (🔥 FIXED)
+# =========================
+if [ "$ACTION" = "set_paid" ]; then
+
+    USER=$(echo "$POST_DATA" | jsonfilter -e '@.user')
+    VALUE=$(echo "$POST_DATA" | jsonfilter -e '@.value')
+
+    PASS=$(jsonfilter -i "$DATA_FILE" -e '@.password')
+
+    # extract usernames safely
+    EXISTING=$(jsonfilter -i "$DATA_FILE" -e '@.paid' \
+        | tr '{},' '\n' \
+        | grep ':' \
+        | cut -d':' -f1 \
+        | tr -d '" ')
+
+    NEW_PAID="{"
+    FIRST=1
+
+    for u in $EXISTING; do
+        [ "$u" = "$USER" ] && continue
+        [ -z "$u" ] && continue
+
+        # 🔥 ignore garbage values
+        [ "$u" = "true" ] && continue
+
+        if [ $FIRST -eq 0 ]; then
+            NEW_PAID="$NEW_PAID,"
+        fi
+
+        NEW_PAID="$NEW_PAID\"$u\":true"
+        FIRST=0
+    done
+
+    if [ "$VALUE" = "true" ]; then
+        if [ $FIRST -eq 0 ]; then
+            NEW_PAID="$NEW_PAID,"
+        fi
+
+        NEW_PAID="$NEW_PAID\"$USER\":true"
+    fi
+
+    NEW_PAID="$NEW_PAID}"
+
+    echo "{\"password\":\"$PASS\",\"paid\":$NEW_PAID}" > "$TMP_FILE"
+    mv "$TMP_FILE" "$DATA_FILE"
+
+    respond '{"status":"ok"}'
+    exit 0
+fi
+
+# =========================
+# CHANGE PASSWORD
+# =========================
+if [ "$ACTION" = "set_password" ]; then
+
+    NEW=$(echo "$POST_DATA" | jsonfilter -e '@.new')
+    PAID=$(jsonfilter -i "$DATA_FILE" -e '@.paid')
+
+    echo "{\"password\":\"$NEW\",\"paid\":$PAID}" > "$TMP_FILE"
+    mv "$TMP_FILE" "$DATA_FILE"
+
+    respond '{"status":"ok"}'
+    exit 0
+fi
+
+respond '{"status":"error"}'
