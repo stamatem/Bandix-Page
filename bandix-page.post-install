@@ -31,12 +31,6 @@ chmod -R 775 /www/data
 # 🔥 OPTIONAL: auto-start WITHOUT blocking apk
 ( /etc/init.d/bandix-sync start >/dev/null 2>&1 ) &
 
-# cron setup
-echo "*/2 * * * * /usr/bin/bandix-quota" >> /etc/crontabs/root
-
-/etc/init.d/cron enable 2>/dev/null
-/etc/init.d/cron start
-
 echo "[Bandix-Page] Ready"
 
 exit 0
