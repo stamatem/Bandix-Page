@@ -9,6 +9,7 @@ start_service() {
         logger -t bandix "[Bandix-Page] running..."
         while true; do
             /usr/bin/bandix-flush || logger -t bandix "flush failed"
+            /usr/bin/bandix-quota
             sleep 120
         done
     '
