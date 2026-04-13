@@ -117,7 +117,15 @@ add_dhcp_leases() {
             [ -z "$MAC" ] && break
 
             MAC_UP=$(echo "$MAC" | tr '[:lower:]' '[:upper:]')
-            IP="192.168.2.$((BASE + MAC_INDEX))"
+            NETWORK=$(jsonfilter -i "$DATA_FILE" -e '@._network' 2>/dev/null)
+
+            # fallback if missing
+            [ -z "$NETWORK" ] && NETWORK="192.168.2"
+
+            # ✅ ADD THIS LINE (3-octet protection)
+            echo "$NETWORK" | grep -Eq '^([0-9]{1,3}\.){2}[0-9]{1,3}$' || NETWORK="192.168.2"
+
+            IP="$NETWORK.$((BASE + MAC_INDEX))"
             NAME="${USER}-$((MAC_INDEX + 1))"
 
             SECTION=$(uci add dhcp host)
@@ -247,5 +255,3 @@ echo "[Bandix] quota failed" >> /tmp/bandix.log
 
 respond '{"status":"ok"}'
 exit 0
-
-
