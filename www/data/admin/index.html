@@ -639,6 +639,24 @@ input:checked + .slider:before {
 </div>
 
 <div class="card">
+  <div class="user">🌐 Network</div>
+  <div class="row">
+    <input 
+      id="network"
+      placeholder="192.168.2"
+      inputmode="numeric"
+      pattern="^(\d{1,3}\.){2}\d{1,3}$"
+      maxlength="11"
+      oninput="formatNetwork(this)"
+    >
+
+    <button onclick="saveNetwork(this)" class="action">
+      <span>Save</span>
+    </button>
+  </div>
+</div>
+
+<div class="card">
   <div class="user">🛡 Admin User</div>
   <div class="row">
     <select id="noBlockUser" style="flex:1; padding:8px; border-radius:8px; background:#0f172a; color:white;"></select>
@@ -688,6 +706,29 @@ function startBtnLoading(btn) {
 let multiplierInterval = null;
 let multiplierTimeout = null;
 let multiplierStep = null;
+
+function formatNetwork(input) {
+  let value = input.value;
+
+  // keep only numbers and dots
+  value = value.replace(/[^0-9.]/g, '');
+
+  // split into parts
+  let parts = value.split('.').slice(0, 3); // max 3 octets
+
+  // limit each octet to 0–255 and max 3 digits
+  parts = parts.map(p => {
+    if (p.length > 3) p = p.slice(0, 3);
+    let num = parseInt(p, 10);
+    if (!isNaN(num)) {
+      if (num > 255) num = 255;
+      return String(num);
+    }
+    return p;
+  });
+
+  input.value = parts.join('.');
+}
 
 function changeMultiplier(step) {
   const input = document.getElementById('multiplier');
@@ -810,6 +851,7 @@ async function load() {
   // -------------------------
 
   document.getElementById('multiplier').value = users._multiplier || 1.06;
+  document.getElementById('network').value = users._network || "192.168.2";
 
   const select = document.getElementById('noBlockUser');
   if (select) {
@@ -940,6 +982,29 @@ async function togglePaid(user, checkbox) {
     // revert UI
     checkbox.checked = !value;
   }
+}
+
+async function saveNetwork(btn) {
+  const val = document.getElementById('network').value.trim();
+
+  // basic validation
+  const parts = val.split('.');
+
+  if (
+    parts.length !== 3 ||
+    parts.some(p => isNaN(p) || p < 0 || p > 255)
+  ) {
+    alert("Invalid network (example: 192.168.2)");
+    return;
+  }
+
+  startBtnLoading(btn);
+
+  users._network = val;
+
+  await saveAsync();
+
+  stopBtnLoading(btn);
 }
 
 /* 🔥 FIXED SAVE (DEBOUNCE) */
@@ -1333,6 +1398,3 @@ window.addEventListener('blur', stopMultiplierStep);
 
 </body>
 </html>
-
-
-
