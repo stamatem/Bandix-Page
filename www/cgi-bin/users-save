@@ -151,6 +151,22 @@ add_dhcp_leases() {
     return 0
 }
 
+update_cron() {
+
+    REFRESH=$(jsonfilter -i "$DATA_FILE" -e '@._refresh' 2>/dev/null)
+    [ -z "$REFRESH" ] && REFRESH=2
+    [ "$REFRESH" -lt 1 ] && REFRESH=1
+    [ "$REFRESH" -gt 60 ] && REFRESH=60
+
+    # remove old bandix cron
+    sed -i '/bandix-cron/d' /etc/crontabs/root
+
+    # add new one
+    echo "*/$REFRESH * * * * /usr/bin/bandix-flush && /usr/bin/bandix-quota # bandix-cron" >> /etc/crontabs/root
+
+    # reload cron
+    /etc/init.d/cron restart
+}
 # -------------------------
 
 read_post_data
@@ -237,14 +253,17 @@ NEW_FP="$(generate_users_fingerprint "$DATA_FILE")"
 echo "[Bandix] FP=$NEW_FP" >> /tmp/bandix.log
 OLD_FP="$(cat "$OLD_FP_FILE" 2>/dev/null)"
 
-if [ "$NEW_FP" != "$OLD_FP" ]; then
-    echo "[Bandix] USERS CHANGED -> rebuilding DHCP" >> /tmp/bandix.log
+if add_dhcp_leases; then
+    echo "$NEW_FP" > "$OLD_FP_FILE"
 
-    if add_dhcp_leases; then
-        echo "$NEW_FP" > "$OLD_FP_FILE"
-    else
-        echo "[Bandix] DHCP rebuild failed, fingerprint NOT updated" >> /tmp/bandix.log
-    fi
+    # 🔄 update cron ONLY when users changed
+    REFRESH=$(jsonfilter -i "$DATA_FILE" -e '@._refresh' 2>/dev/null)
+    [ -z "$REFRESH" ] && REFRESH=2
+
+    sed -i '/bandix-cron/d' /etc/crontabs/root
+    echo "*/$REFRESH * * * * /usr/bin/bandix-flush && /usr/bin/bandix-quota # bandix-cron" >> /etc/crontabs/root
+    /etc/init.d/cron restart
+
 else
     echo "[Bandix] USERS unchanged -> skip DHCP rebuild" >> /tmp/bandix.log
 fi
