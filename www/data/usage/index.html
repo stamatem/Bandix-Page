@@ -337,7 +337,7 @@ async function load() {
 
       div.innerHTML = `
         <div class="user">
-          ${user} ${over ? '🔴' : ''} ${payData.paid && payData.paid[user] ? '💵' : ''}
+          ${user} ${over ? '🔴' : ''} ${payData.paid && payData.paid[user] ? '💰' : ''}
         </div>
 
         <div class="usage">
@@ -417,5 +417,3 @@ window.addEventListener('storage', function(e) {
 
 </body>
 </html>
-
-
