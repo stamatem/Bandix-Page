@@ -622,7 +622,7 @@ input:checked + .slider:before {
 </div>
 
 <div class="card">
-  <div class="user">📊 Multiplier</div>
+  <div class="user">📈 Multiplier</div>
   <div class="row">
     <div class="mac-box">
       <button onpointerdown="startMultiplierStep(-1)" class="step-btn">−</button>
@@ -657,7 +657,18 @@ input:checked + .slider:before {
 </div>
 
 <div class="card">
-  <div class="user">⏱ Refresh Time</div>
+  <div class="user">📍 Firewall Zone</div>
+  <div class="row">
+    <select id="zoneSelect" style="flex:1; padding:8px; border-radius:8px; background:#0f172a; color:white;"></select>
+
+    <button onclick="saveZone(this)" class="action">
+      <span>Save</span>
+    </button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="user">⏱ Update Interval</div>
   <div class="row">
     <div class="mac-box">
       <button onpointerdown="startRefreshStep(-1)" class="step-btn">−</button>
@@ -685,22 +696,22 @@ input:checked + .slider:before {
   </div>
 </div>
 
-<div class="card">
-  <div class="user">➕ New User</div>
-  <div class="row">
-    <input id="newUser" placeholder="New user">
-    <button onclick="addUser(this)" class="action">
-      <span>Add</span>
-    </button>
-  </div>
-</div>
-
 <div class="card" style="grid-column: 1 / -1;">
   <div class="user">⚠️ Reset All Traffic Data</div>
 
   <div class="row center">
     <button onclick="cleanupBandix(this)" class="delete">
       Reset All Traffic Data
+    </button>
+  </div>
+</div>
+
+<div class="card" style="grid-column: 1 / -1;">
+  <div class="user">➕ New User</div>
+  <div class="row">
+    <input id="newUser" placeholder="New user">
+    <button onclick="addUser(this)" class="action">
+      <span>Add</span>
     </button>
   </div>
 </div>
@@ -799,7 +810,7 @@ function changeMultiplier(step) {
   // keep 2 decimals clean (no 1.009999 crap)
   val = Math.round(val * 100) / 100;
 
-  if (val < 0) val = 0;
+  if (val < 1) val = 1;
 
   input.value = val.toFixed(2);
 }
@@ -933,6 +944,41 @@ async function load() {
     }
   }
 
+  // 🔥 AUTO LOAD ZONES FROM users-pay (skip WAN)
+  try {
+    const res = await fetch('/cgi-bin/users-pay', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: "zones" })
+    });
+
+    const data = await res.json();
+
+    const zoneSelect = document.getElementById('zoneSelect');
+
+    if (zoneSelect) {
+      zoneSelect.innerHTML = '';
+
+      (data.zones || []).forEach(z => {
+        // 🚫 prevent WAN selection
+        if (z === "wan") return;
+
+        const opt = document.createElement('option');
+        opt.value = z;
+        opt.innerText = z;
+
+        if (users._zone === z) {
+          opt.selected = true;
+        }
+
+        zoneSelect.appendChild(opt);
+      });
+    }
+
+  } catch (e) {
+    console.log("Failed to load zones", e);
+  }
+
   const list = document.getElementById('list');
   list.innerHTML = '';
 
@@ -951,7 +997,7 @@ async function load() {
             <span>${mac}</span>
           </div>
 
-          <button onclick="delMac('${user}','${mac}', this)" class="delete">x</button>
+          <button onclick="delMac('${user}','${mac}', this)" class="delete">⛔</button>
         </div>
       `;
     });
@@ -965,7 +1011,7 @@ async function load() {
 
         <!-- 🔥 iPhone Toggle -->
         <div style="display:flex; align-items:center; gap:6px;">
-          <span style="font-size:30px;">💵</span>
+          <span style="font-size:20px;">💰</span>
 
           <label class="switch">
             <input type="checkbox"
@@ -1015,6 +1061,23 @@ async function load() {
 
     list.appendChild(div);
   }
+}
+
+async function saveZone(btn) {
+  const val = document.getElementById('zoneSelect').value;
+
+  if (!val) {
+    alert("Select zone");
+    return;
+  }
+
+  startBtnLoading(btn);
+
+  users._zone = val;
+
+  await saveAsync();
+
+  stopBtnLoading(btn);
 }
 
 async function saveRefresh(btn) {
@@ -1292,17 +1355,9 @@ async function cleanupBandix(btn) {
   if (!confirm("⚠️ This will delete all files in /usr/share/bandix. Continue?")) return;
   if (!confirm("🚨 FINAL WARNING: This cannot be undone. Continue?")) return;
 
-  const original = btn.innerHTML;
+  startBtnLoading(btn); // 🔥 spinner ON
 
   try {
-    btn.classList.add('loading');
-
-    // 🔄 STEP 1: Deleting
-    btn.innerHTML = `<span>Deleting...</span>`;
-
-    // small delay so user actually sees it
-    await new Promise(r => setTimeout(r, 300));
-
     const res = await fetch('/cgi-bin/users-save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1312,43 +1367,26 @@ async function cleanupBandix(btn) {
       })
     });
 
-    // 🔄 STEP 2: Restarting
-    btn.innerHTML = `<span>Restarting...</span>`;
-
-    await new Promise(r => setTimeout(r, 400));
-
     const text = await res.text();
     const data = JSON.parse(text.slice(text.indexOf('{')));
 
-    if (data.status === "ok") {
-      // ✅ STEP 3: Done
-      btn.innerHTML = `<span>Done</span>`;
-
-      // subtle success pause
-      await new Promise(r => setTimeout(r, 1000));
-
-    } else {
+    if (data.status !== "ok") {
       throw new Error(data.message || "failed");
     }
 
   } catch (e) {
     console.error("Cleanup failed:", e);
-
-    btn.innerHTML = `<span>Error</span>`;
-
-    await new Promise(r => setTimeout(r, 1200));
+    alert("Cleanup failed");
   }
 
-  // 🔁 restore
-  btn.innerHTML = original;
-  btn.classList.remove('loading');
+  stopBtnLoading(btn); // 🔥 spinner OFF
 }
 
 async function saveMultiplier(btn) {
   const val = parseFloat(document.getElementById('multiplier').value);
 
-  if (isNaN(val) || val <= 0) {
-    alert("Invalid multiplier");
+  if (isNaN(val) || val < 1) {
+    alert("Multiplier must be at least 1");
     return;
   }
 
