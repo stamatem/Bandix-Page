@@ -18,6 +18,7 @@ jobs:
 
     - run: |
         chmod +x bandix-page.post-install
+        chmod +x bandix-page.post-deinstall
 
     - run: |
         adduser -D builder
