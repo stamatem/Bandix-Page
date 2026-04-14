@@ -123,7 +123,7 @@ move_rule_to_bottom() {
 }
 
 ZONE=$(echo "$USERS_RAW" | jsonfilter -e '@._zone' 2>/dev/null)
-[ -z "$ZONE" ] && ZONE="guest"
+[ -z "$ZONE" ] && ZONE="lan"
 
 add_firewall_rules() {
 
