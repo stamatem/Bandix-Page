@@ -1,5 +1,5 @@
 pkgname=bandix-page
-pkgver=1.2.0
+pkgver=1.3.0
 pkgrel=0
 pkgdesc="Bandix OpenWRT Web UI"
 url="https://github.com/stamatem/Bandix-Page"
