@@ -18,7 +18,7 @@ subpackages=""
 
 options="!check !tracedeps !strip"
 
-install="bandix-page.post-install"
+install="bandix-page.post-install bandix-page.post-deinstall"
 
 builddir="$PWD"
 
