@@ -70,6 +70,7 @@ echo "[Bandix-Quota] HAS_USERS=$HAS_USERS" >> $LOG
 
 TMP_MAP="/tmp/bandix_map"
 rm -f "$TMP_MAP"
+touch "$TMP_MAP"
 
 get_ip_from_mac() {
     TARGET_MAC="$1"
@@ -95,6 +96,18 @@ find_rule_index() {
     uci show firewall | grep "name='$NAME'" | cut -d'.' -f2 | cut -d'=' -f1
 }
 
+move_rule_to_top() {
+    NAME="$1"
+
+    IDX=$(uci show firewall | grep "name='$NAME'" | cut -d'.' -f2 | cut -d'=' -f1)
+    [ -z "$IDX" ] && return
+
+    NUM=$(echo "$IDX" | sed 's/@rule\[\(.*\)\]/\1/')
+
+    # move to top (index 0)
+    uci reorder firewall.@rule[$NUM]=0
+}
+
 move_rule_to_bottom() {
     NAME="$1"
 
@@ -108,6 +121,9 @@ move_rule_to_bottom() {
     # move to last
     uci reorder firewall.@rule[$NUM]=999
 }
+
+ZONE=$(echo "$USERS_RAW" | jsonfilter -e '@._zone' 2>/dev/null)
+[ -z "$ZONE" ] && ZONE="guest"
 
 add_firewall_rules() {
 
@@ -129,16 +145,11 @@ add_firewall_rules() {
     uci commit firewall
     echo "[Bandix-Quota] OLD RULES REMOVED" >> $LOG
 
-    # ✅ FIXED USER EXTRACTION ONLY
     USERS=$(echo "$USERS_RAW" | tr '{},' '\n' | grep ':' | cut -d':' -f1 | tr -d '" ' | while read -r U; do
 
-        # skip system keys
         echo "$U" | grep -q "^_" && continue
-
-        # skip numeric garbage (fixes @.20.macs error)
         echo "$U" | grep -Eq '^[0-9]+$' && continue
 
-        # must have macs → real user
         TEST=$(echo "$USERS_RAW" | jsonfilter -e "@.$U.macs[0]" 2>/dev/null)
         [ -z "$TEST" ] && continue
 
@@ -161,11 +172,11 @@ add_firewall_rules() {
             SECTION=$(uci add firewall rule) || continue
 
             uci set firewall.$SECTION.name="$RULE_NAME"
-            uci set firewall.$SECTION.src='guest'
+            uci set firewall.$SECTION.src="$ZONE"
             uci add_list firewall.$SECTION.src_mac="$MAC_UP"
             uci set firewall.$SECTION.target='REJECT'
             uci set firewall.$SECTION.enabled='0'
-            uci set firewall.$SECTION.dest='lan'
+            uci set firewall.$SECTION.dest='*'
             uci set firewall.$SECTION.proto='all'
             uci set firewall.$SECTION.comment='bandix'
 
@@ -178,6 +189,40 @@ add_firewall_rules() {
     echo "[Bandix-Quota] FIREWALL DONE" >> $LOG
 }
 
+ensure_page_rule() {
+
+    IDX=$(find_rule_index "bandix_page")
+
+    if [ -n "$IDX" ]; then
+        SECTION="$IDX"
+    else
+        SECTION=$(uci add firewall rule)
+
+        uci set firewall.$SECTION.name="bandix_page"
+        uci set firewall.$SECTION.src="$ZONE"
+        uci set firewall.$SECTION.dest_ip='192.168.2.1'
+        uci set firewall.$SECTION.dest_port='80'
+        uci set firewall.$SECTION.proto='tcp'
+        uci set firewall.$SECTION.target='ACCEPT'
+        uci set firewall.$SECTION.comment='bandix'
+
+        CHANGED=1
+        echo "[Bandix-Quota] PAGE rule created" >> $LOG
+    fi
+
+    OLD_TARGET=$(uci get firewall.$SECTION.target 2>/dev/null)
+    [ "$OLD_TARGET" != "ACCEPT" ] && {
+        uci set firewall.$SECTION.target='ACCEPT'
+        CHANGED=1
+    }
+
+    OLD_ENABLED=$(uci get firewall.$SECTION.enabled 2>/dev/null)
+    [ "$OLD_ENABLED" != "1" ] && {
+        uci set firewall.$SECTION.enabled='1'
+        CHANGED=1
+    }
+}
+
 ensure_known_rule() {
 
     IDX=$(find_rule_index "bandix_known")
@@ -188,8 +233,8 @@ ensure_known_rule() {
     else
         SECTION=$(uci add firewall rule)
         uci set firewall.$SECTION.name="bandix_known"
-        uci set firewall.$SECTION.src='guest'
-        uci set firewall.$SECTION.dest='lan'
+        uci set firewall.$SECTION.src="$ZONE"
+        uci set firewall.$SECTION.dest='*'
         uci set firewall.$SECTION.proto='all'
         uci set firewall.$SECTION.comment='bandix'
         echo "[Bandix-Quota] KNOWN rule created" >> $LOG
@@ -301,8 +346,8 @@ ensure_unknown_rule() {
     else
         SECTION=$(uci add firewall rule)
         uci set firewall.$SECTION.name="bandix_unknown"
-        uci set firewall.$SECTION.src='guest'
-        uci set firewall.$SECTION.dest='lan'
+        uci set firewall.$SECTION.src="$ZONE"
+        uci set firewall.$SECTION.dest='*'
         uci set firewall.$SECTION.proto='all'
         uci set firewall.$SECTION.comment='bandix'
         CHANGED=1
@@ -456,6 +501,7 @@ done
 
 if [ "$HAS_USERS" = "1" ]; then
 
+    ensure_page_rule       # 🔥 FIRST (new)
     ensure_known_rule      # ✅ FIRST → allow baseline
     ensure_unknown_rule    # ✅ LAST → fallback block
 
@@ -466,13 +512,14 @@ else
 fi
 
 # 🔥 ALWAYS push UNKNOWN rule to bottom (last rule)
+move_rule_to_top "bandix_page"
 move_rule_to_bottom "bandix_unknown"
 
 # now commit + reload everything together
 if [ "$CHANGED" = "1" ] || [ "$FIREWALL_REBUILT" = "1" ]; then
     uci commit firewall
     /etc/init.d/firewall reload
-    echo "[Bandix-Quota] FIREWALL RELOADED" >> $LOG
+    echo "[Bandix-Quota] FIREWALL RELOADED $(date)" >> $LOG
 
     # 🔥 KILL ONLY USERS OVER QUOTA (NOW IN CORRECT PLACE)
 
