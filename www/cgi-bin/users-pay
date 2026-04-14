@@ -48,6 +48,41 @@ if [ "$ACTION" = "get" ]; then
 fi
 
 # =========================
+# GET ZONES (NO AUTH NEEDED)
+# =========================
+if [ "$ACTION" = "zones" ]; then
+
+    echo "Content-Type: application/json"
+    echo ""
+
+    echo -n "{ \"zones\": ["
+
+    FIRST=1
+
+    for Z in $(uci show firewall | grep "=zone" | cut -d'.' -f2 | cut -d'=' -f1); do
+
+        NAME=$(uci get firewall.$Z.name 2>/dev/null)
+
+        [ -z "$NAME" ] && continue
+
+        # optional: skip wan
+        # [ "$NAME" = "wan" ] && continue
+
+        if [ $FIRST -eq 0 ]; then
+            echo -n ","
+        fi
+        FIRST=0
+
+        echo -n "\"$NAME\""
+
+    done
+
+    echo "] }"
+
+    exit 0
+fi
+
+# =========================
 # AUTH REQUIRED
 # =========================
 PASS=$(echo "$POST_DATA" | jsonfilter -e '@.password')
