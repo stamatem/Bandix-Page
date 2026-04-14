@@ -196,9 +196,16 @@ if [ "$ACTION" = "cleanup" ]; then
     # ⏱️ delayed flush in background (non-blocking)
     (
         sleep 10
+
         /usr/bin/bandix-flush >> /tmp/bandix.log 2>&1 || {
             echo "[Bandix] flush failed" >> /tmp/bandix.log
         }
+
+        # 🔥 NOW rebuild firewall AFTER flush
+        /usr/bin/bandix-quota force >> /tmp/bandix.log 2>&1 || {
+            echo "[Bandix] quota after flush failed" >> /tmp/bandix.log
+        }
+
     ) &
 
     respond '{"status":"ok"}'
