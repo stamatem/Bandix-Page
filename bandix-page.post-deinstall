@@ -1,0 +1,13 @@
+#!/bin/busybox sh
+
+echo "[Bandix-Page] Removing..."
+
+# remove bandix cron entries
+[ -f /etc/crontabs/root ] && sed -i '/bandix-cron/d' /etc/crontabs/root
+
+# restart cron to apply changes
+/etc/init.d/cron restart 2>/dev/null
+
+echo "[Bandix-Page] Removed"
+
+exit 0
