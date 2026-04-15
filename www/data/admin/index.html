@@ -902,6 +902,24 @@ async function load() {
     users = {};
   }
 
+  // 🔥 ALWAYS initialize (even if JSON failed)
+  let changed = false;
+
+  if (!users._network) {
+    users._network = "192.168.2";
+    changed = true;
+  }
+
+  if (!users._zone) {
+    users._zone = "guest";
+    changed = true;
+  }
+
+  if (changed) {
+    await saveAsync();
+    return;
+  }
+
   // 🔥 LOAD PAID USERS
   try {
     const res2 = await fetch('/cgi-bin/users-pay', {
@@ -960,7 +978,6 @@ async function load() {
       zoneSelect.innerHTML = '';
 
       (data.zones || []).forEach(z => {
-        // 🚫 prevent WAN selection
         if (z === "wan") return;
 
         const opt = document.createElement('option');
@@ -986,7 +1003,6 @@ async function load() {
     if (user.startsWith("_")) continue;
 
     const u = users[user] || { quota:60, macs:[] };
-
     const isPaid = !!paidUsers[user];
 
     let macsHTML = '';
@@ -1009,7 +1025,6 @@ async function load() {
       <div class="user" style="display:flex; align-items:center; gap:12px;">      
         <span>${user}</span>
 
-        <!-- 🔥 iPhone Toggle -->
         <div style="display:flex; align-items:center; gap:6px;">
           <span style="font-size:20px;">💰</span>
 
@@ -1017,12 +1032,11 @@ async function load() {
             <input type="checkbox"
                    ${isPaid ? 'checked' : ''}
                    onchange="togglePaid('${user}', this)">
-          <span class="slider"></span>
-        </label>
-      </div>
+            <span class="slider"></span>
+          </label>
+        </div>
       </div>
 
-      <!-- QUOTA -->
       <div class="mac">
         <div class="mac-box">
           <button onpointerdown="startStep('${user}', -1)" class="step-btn">−</button>
@@ -1037,7 +1051,6 @@ async function load() {
         <button onclick="saveQuota('${user}', this)" class="action">Save</button>
       </div>
 
-      <!-- ADD MAC -->
       <div class="mac">
         <div class="mac-box">
           <input 
@@ -1050,10 +1063,8 @@ async function load() {
         <button onclick="addMac('${user}', this)" class="action plus-btn">Add</button>
       </div>
 
-      <!-- EXISTING MACS -->
       ${macsHTML}
 
-      <!-- DELETE USER -->
       <div class="row center">
         <button onclick="delUser('${user}', this)" class="delete">Delete User</button>
       </div>
