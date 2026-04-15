@@ -263,13 +263,17 @@ OLD_FP="$(cat "$OLD_FP_FILE" 2>/dev/null)"
 if add_dhcp_leases; then
     echo "$NEW_FP" > "$OLD_FP_FILE"
 
-    # 🔄 update cron ONLY when users changed
+    # update cron ONLY when users changed
     REFRESH=$(jsonfilter -i "$DATA_FILE" -e '@._refresh' 2>/dev/null)
     [ -z "$REFRESH" ] && REFRESH=2
 
     sed -i '/bandix-cron/d' /etc/crontabs/root
     echo "*/$REFRESH * * * * /usr/bin/bandix-flush && /usr/bin/bandix-quota # bandix-cron" >> /etc/crontabs/root
     /etc/init.d/cron restart
+
+    # ✅ RUN ONLY WHEN CHANGED (same logic)
+    /usr/bin/generate-hosts.sh >> /tmp/bandix.log 2>&1 || \
+        echo "[Bandix] generate-hosts failed" >> /tmp/bandix.log
 
 else
     echo "[Bandix] USERS unchanged -> skip DHCP rebuild" >> /tmp/bandix.log
