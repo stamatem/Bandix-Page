@@ -2,16 +2,22 @@
 
 echo "[Bandix-Page] Removing..."
 
+# -------------------------
 # remove bandix cron entries
+# -------------------------
 [ -f /etc/crontabs/root ] && sed -i '/bandix-cron/d' /etc/crontabs/root
 
 # restart cron to apply changes
 /etc/init.d/cron restart 2>/dev/null
 
 # -------------------------
+# remove rc.local entry
+# -------------------------
+[ -f /etc/rc.local ] && sed -i '/generate-hosts.sh/d' /etc/rc.local
+
+# -------------------------
 # delete bandix data files
 # -------------------------
-
 rm -f /www/data/users.json
 rm -f /www/data/users-pay.json
 rm -f /www/data/bandix-public.json
