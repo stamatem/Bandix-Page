@@ -25,6 +25,32 @@ chmod 664 /www/data/*.json 2>/dev/null
 chown -R root:nogroup /www/data
 chmod -R 775 /www/data
 
+# -------------------------
+# ensure devices symlink at boot (rc.local)
+# -------------------------
+
+RCLOCAL="/etc/rc.local"
+LINE="ln -sf /tmp/devices.txt /www/devices.txt"
+
+# create rc.local if missing
+if [ ! -f "$RCLOCAL" ]; then
+    echo "#!/bin/sh" > "$RCLOCAL"
+    echo "exit 0" >> "$RCLOCAL"
+    chmod +x "$RCLOCAL"
+fi
+
+# add line only if not already present
+grep -q "devices.txt" "$RCLOCAL" 2>/dev/null || {
+    sed -i "\$i $LINE" "$RCLOCAL"
+}
+
+# generate devices file if script exists
+if [ -x /usr/bin/generate-hosts.sh ]; then
+    /usr/bin/generate-hosts.sh >/dev/null 2>&1
+fi
+
+# create symlink
+ln -sf /tmp/devices.txt /www/devices.txt
 echo "[Bandix-Page] Ready"
 
 exit 0
