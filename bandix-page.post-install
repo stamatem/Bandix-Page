@@ -30,7 +30,7 @@ chmod -R 775 /www/data
 # -------------------------
 
 RCLOCAL="/etc/rc.local"
-LINE="ln -sf /tmp/devices.txt /www/devices.txt"
+LINE="/usr/bin/generate-hosts.sh; ln -sf /tmp/devices.txt /www/devices.txt"
 
 # create rc.local if missing
 if [ ! -f "$RCLOCAL" ]; then
