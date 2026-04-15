@@ -19,6 +19,7 @@ chmod 664 /www/data/*.json 2>/dev/null
 [ -d /www/cgi-bin ] && chmod +x /www/cgi-bin/* 2>/dev/null
 [ -f /usr/bin/bandix-flush ] && chmod +x /usr/bin/bandix-flush
 [ -f /usr/bin/bandix-quota ] && chmod +x /usr/bin/bandix-quota
+[ -f /usr/bin/generate-hosts.sh ] && chmod +x /usr/bin/generate-hosts.sh
 
 # data permissions
 chown -R root:nogroup /www/data
