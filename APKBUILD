@@ -1,5 +1,5 @@
 pkgname=bandix-page
-pkgver=1.4.0
+pkgver=1.5.0
 pkgrel=0
 pkgdesc="Bandix OpenWRT Web UI"
 url="https://github.com/stamatem/Bandix-Page"
@@ -7,11 +7,8 @@ arch="noarch"
 license="MIT"
 
 depends="
-gawk
 grep
 sed
-jq
-curl
 "
 makedepends=""
 subpackages=""
