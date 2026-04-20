@@ -1,7 +1,10 @@
 #!/bin/busybox sh
 
+TMP_BASE="/tmp/bandixpage"
+mkdir -p "$TMP_BASE"
+
 DATA_FILE="/www/data/users-pay.json"
-TMP_FILE="/tmp/users-pay.json.tmp"
+TMP_FILE="$TMP_BASE/users-pay.json.tmp"
 
 read_post_data() {
     if [ -n "$CONTENT_LENGTH" ]; then
@@ -161,3 +164,4 @@ if [ "$ACTION" = "set_password" ]; then
 fi
 
 respond '{"status":"error"}'
+
