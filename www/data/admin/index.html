@@ -580,6 +580,10 @@ input:checked + .slider:before {
     0 0 20px rgba(34,197,94,0.4);
 }
 
+.card.reset-card .user {
+  text-align: center;
+}
+
 @media (max-width:480px) {
  .nav-btn {
     font-size:17px;
@@ -611,7 +615,7 @@ input:checked + .slider:before {
 </div>
 
 <div class="card">
-  <div class="user">🔑 Change Password</div>
+  <div class="user">🔑 Password Change</div>
   <div class="row">
     <input id="oldPass" type="password" placeholder="Current password">
   </div>
@@ -622,7 +626,7 @@ input:checked + .slider:before {
 </div>
 
 <div class="card">
-  <div class="user">📈 Multiplier</div>
+  <div class="user">📈 Data Multiplier</div>
   <div class="row">
     <div class="mac-box">
       <button onpointerdown="startMultiplierStep(-1)" class="step-btn">−</button>
@@ -668,7 +672,7 @@ input:checked + .slider:before {
 </div>
 
 <div class="card">
-  <div class="user">⏱ Update Interval</div>
+  <div class="user">⏱ Quota Interval</div>
   <div class="row">
     <div class="mac-box">
       <button onpointerdown="startRefreshStep(-1)" class="step-btn">−</button>
@@ -696,7 +700,7 @@ input:checked + .slider:before {
   </div>
 </div>
 
-<div class="card" style="grid-column: 1 / -1;">
+<div class="card reset-card" style="grid-column: 1 / -1;">
   <div class="user">⚠️ Reset All Traffic Data</div>
 
   <div class="row center">
@@ -1178,14 +1182,25 @@ async function saveAsync() {
 
       const res = await fetch('/cgi-bin/users-save', {
         method:'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           password: adminPassword,
           data: users
         })
       });
 
-      if (!res.ok) {
-        throw new Error("Server error");
+      const text = await res.text();
+
+      // 🔥 robust JSON extraction (your backend sometimes logs)
+      const jsonStart = text.indexOf('{');
+      if (jsonStart === -1) {
+        throw new Error("Invalid response");
+      }
+
+      const data = JSON.parse(text.slice(jsonStart));
+
+      if (data.status !== "ok") {
+        throw new Error(data.message || "Save failed");
       }
 
     } while (pendingSave);
@@ -1459,26 +1474,36 @@ async function changePassword() {
 
 async function checkQuotaScript() {
   try {
-    const res = await fetch('/cgi-bin/bandix-status?t=' + Date.now());
-    const data = await res.json();
+    const res = await fetch('/data/bandixquota.log?t=' + Date.now());
+    const text = await res.text();
 
     const dot = document.getElementById('statusDot');
     const time = document.getElementById('statusTime');
 
-    if (data.status !== "ok") {
+    // 🔥 FIX: skip empty lines
+    const firstLine = text.split('\n').find(line => line.trim() !== '');
+
+    const match = firstLine && firstLine.match(/QUOTA RUN (.+)/);
+
+    if (!match) {
       dot.innerHTML = '⚪';
       time.innerHTML = '';
       return;
     }
 
-    const last = data.ts * 1000;
-    const now = Date.now();
+    // keep your UTC-safe parsing (or simple version if working)
+    const raw = match[1].replace('UTC', 'GMT');
+    const date = new Date(raw);
 
-    const diff = now - last;
+    if (isNaN(date.getTime())) {
+      dot.innerHTML = '⚪';
+      time.innerHTML = '';
+      return;
+    }
+
+    const diff = Date.now() - date.getTime();
     const TEN_MIN = 10 * 60 * 1000;
 
-    const date = new Date(last);
-    
     const formatted = date.toLocaleTimeString([], {
       hour: '2-digit',
       minute: '2-digit',
@@ -1486,12 +1511,7 @@ async function checkQuotaScript() {
     });
 
     time.innerHTML = "Last Quota: " + formatted;
-
-    if (diff < TEN_MIN) {
-      dot.innerHTML = '🟢';
-    } else {
-      dot.innerHTML = '🔴';
-    }
+    dot.innerHTML = diff < TEN_MIN ? '🟢' : '🔴';
 
   } catch (e) {
     document.getElementById('statusDot').innerHTML = '⚪';
@@ -1528,3 +1548,4 @@ window.addEventListener('blur', stopRefreshStep);
 
 </body>
 </html>
+
