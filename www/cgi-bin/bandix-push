@@ -1,13 +1,17 @@
 #!/bin/busybox sh
 
-BUFFER="/tmp/bandix-buffer.json"
+TMP_BASE="/tmp/bandixpage"
+mkdir -p "$TMP_BASE"
+
+BUFFER="$TMP_BASE/bandix-buffer.json"
+TMP="$TMP_BASE/bandix-buffer.json.tmp"
+LOCK="$TMP_BASE/bandix.lock"
+
+LAST_WRITE="$TMP_BASE/last_write"
+INTERVAL=30  # seconds
 
 read_post_data() {
-    if [ -n "$CONTENT_LENGTH" ]; then
-        read -r -n "$CONTENT_LENGTH" POST_DATA
-    else
-        POST_DATA=$(cat)
-    fi
+    POST_DATA=$(cat)
 }
 
 respond() {
@@ -18,10 +22,34 @@ respond() {
 
 read_post_data
 
-# Save to RAM only
-echo "$POST_DATA" > "$BUFFER"
+[ -z "$POST_DATA" ] && respond '{"status":"empty"}' && exit 0
 
-respond '{"status":"buffered"}'
+# 🚀 THROTTLE BEFORE LOCK (big win)
+NOW=$(date +%s)
+LAST=$(cat "$LAST_WRITE" 2>/dev/null || echo 0)
+
+if [ $((NOW - LAST)) -lt $INTERVAL ]; then
+    respond '{"status":"throttled"}'
+    exit 0
+fi
+
+# 🔒 stale lock cleanup
+if [ -d "$LOCK" ]; then
+    AGE=$(( $(date +%s) - $(stat -c %Y "$LOCK" 2>/dev/null || echo 0) ))
+    [ "$AGE" -gt 30 ] && rm -rf "$LOCK"
+fi
+
+if ! mkdir "$LOCK" 2>/dev/null; then
+    respond '{"status":"busy"}'
+    exit 0
+fi
+
+trap 'rm -rf "$LOCK"' EXIT INT TERM
+
+# write + flush (since we already passed throttle)
+echo "$POST_DATA" > "$TMP"
+mv "$TMP" "$BUFFER"
+echo "$NOW" > "$LAST_WRITE"
+
+respond '{"status":"flushed"}'
 exit 0
-
-
