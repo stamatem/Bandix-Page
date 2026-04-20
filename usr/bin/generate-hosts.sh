@@ -1,18 +1,21 @@
-#!/bin/sh
+#!/bin/busybox sh
 
-OUT="/tmp/devices.txt"
-TMP="/tmp/devices.new"
+TMP_BASE="/tmp/bandixpage"
+mkdir -p "$TMP_BASE"
+
+OUT="$TMP_BASE/devices.txt"
+TMP="$TMP_BASE/devices.new"
 
 awk '
 function flush() {
-    if (name && mac && (tag == "bandix" || tag == "permanent")) {
-        print name " " mac
+    if (name && mac && ip && (tag == "bandix" || tag == "permanent")) {
+        print name " " mac " " ip
     }
 }
 
 /^config host/ {
     flush()
-    name=""; mac=""; tag=""
+    name=""; mac=""; ip=""; tag=""
     next
 }
 
@@ -21,9 +24,19 @@ function flush() {
     gsub("'"'"'", "", name)
 }
 
+/option mac/ {
+    mac=$3
+    gsub("'"'"'", "", mac)
+}
+
 /list mac/ {
     mac=$3
     gsub("'"'"'", "", mac)
+}
+
+/option ip/ {
+    ip=$3
+    gsub("'"'"'", "", ip)
 }
 
 /option tag/ {
@@ -40,7 +53,7 @@ if cmp -s "$TMP" "$OUT"; then
     rm -f "$TMP"
 else
     mv "$TMP" "$OUT"
-    logger "bandix host registry updated (RAM)"
+    logger "Bandix-Page Host Registry Updated (RAM)"
 fi
 
 # ✅ ALWAYS notify APs
