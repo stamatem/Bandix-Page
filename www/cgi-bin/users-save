@@ -1,22 +1,31 @@
 #!/bin/busybox sh
 
-echo "" > /tmp/bandix.log
-echo "RUN $(date)" >> /tmp/bandix.log
+TMP_BASE="/tmp/bandixpage"
+LOG_DIR="$TMP_BASE"
+
+mkdir -p "$TMP_BASE"
+
+ln -sf /tmp/bandixpage/devices.txt /www/devices.txt
+
+LOG="$LOG_DIR/bandixusers.log"
+
+echo "RUN $(date)" > "$LOG"
 
 # 🔒 ATOMIC LOCK
-LOCK="/tmp/bandix.lock"
+LOCK="$TMP_BASE/bandix-users.lock"
 
 # remove stale lock
 if [ -d "$LOCK" ]; then
     AGE=$(( $(date +%s) - $(stat -c %Y "$LOCK" 2>/dev/null || echo 0) ))
     if [ "$AGE" -gt 30 ]; then
-        echo "[Bandix] REMOVE STALE LOCK" >> /tmp/bandix.log
+        echo "[Bandix] REMOVE STALE LOCK" >> "$LOG"
         rm -rf "$LOCK"
     fi
 fi
 
 if ! mkdir "$LOCK" 2>/dev/null; then
-    echo "[Bandix] LOCKED" >> /tmp/bandix.log
+    echo "[Bandix] LOCKED" >> "$LOG"
+    respond '{"status":"error","message":"locked"}'
     exit 0
 fi
 
@@ -35,7 +44,7 @@ else
     PASSWORD=""
 fi
 
-TMP_FILE="/tmp/users.json.tmp"
+TMP_FILE="$TMP_BASE/users.json.tmp"
 MAX_SIZE=65536
 
 read_post_data() {
@@ -47,52 +56,30 @@ read_post_data() {
 }
 
 respond() {
-    echo "Content-Type: application/json"
-    echo ""
-    echo "$1"
+    printf "Content-Type: application/json\r\n"
+    printf "\r\n"
+    printf "%s" "$1"
 }
 
-generate_users_ordered() {
-
-    FILE="$1"
-
-    jsonfilter -i "$FILE" -e '@' | \
-    tr '{},' '\n' | grep ':' | cut -d':' -f1 | tr -d '" ' | \
-    while read -r USER; do
-
-        # skip system keys
-        echo "$USER" | grep -q "^_" && continue
-
-        # skip numeric keys (THIS is your missing filter)
-        echo "$USER" | grep -Eq '^[0-9]+$' && continue
-
-        # must have macs array
-        TEST=$(jsonfilter -i "$FILE" -e "@.$USER.macs[0]" 2>/dev/null)
-        [ -z "$TEST" ] && continue
-
-        echo "$USER"
-    done
-}
-
-generate_users_fingerprint() {
-
-    FILE="$1"
-
-    generate_users_ordered "$FILE" | while read -r USER; do
-        MACS=$(jsonfilter -i "$FILE" -e "@.$USER.macs[*]" 2>/dev/null)
-        echo "$USER:$MACS"
-    done | sort | md5sum | cut -d' ' -f1
-}
-
-# 🔥 DHCP FUNCTION
 add_dhcp_leases() {
 
+    CACHE="$TMP_BASE/bandix.cache"
+
+    # --- NETWORK ---
+    NETWORK=$(grep '^META|network|' "$CACHE" | cut -d'|' -f3)
+    [ -z "$NETWORK" ] && NETWORK="192.168.2"
+
+    case "$NETWORK" in
+        [0-9]*.[0-9]*.[0-9]*) ;;
+        *) NETWORK="192.168.2" ;;
+    esac
+
+    # --- REMOVE OLD BANDIX HOSTS ---
     INDEX=0
     while true; do
-        NAME=$(uci get dhcp.@host[$INDEX].name 2>/dev/null)
-        [ -z "$NAME" ] && break
-
         TAG=$(uci get dhcp.@host[$INDEX].tag 2>/dev/null)
+
+        [ -z "$TAG" ] && break
 
         if [ "$TAG" = "bandix" ]; then
             uci delete dhcp.@host[$INDEX]
@@ -102,70 +89,199 @@ add_dhcp_leases() {
         INDEX=$((INDEX + 1))
     done
 
+    # --- BUILD NEW CONFIG (BATCH) ---
+    TMP_UCI="$TMP_BASE/bandix.uci"
+    : > "$TMP_UCI"
+
     USER_INDEX=0
+    CURRENT_USER=""
+    MAC_INDEX=0
 
-    USERS=$(generate_users_ordered "$DATA_FILE")
+    while IFS='|' read -r USER MAC QUOTA; do
 
-    for USER in $USERS; do
+        [ "$USER" = "META" ] && continue
 
-        BASE=$((20 + USER_INDEX * 10))
-        MAC_INDEX=0
+        if [ "$USER" != "$CURRENT_USER" ]; then
+            CURRENT_USER="$USER"
+            MAC_INDEX=0
+            BASE=$((20 + USER_INDEX * 10))
+            USER_INDEX=$((USER_INDEX + 1))
+        fi
 
-        while true; do
+        MAC_UP=$(echo "$MAC" | tr '[:lower:]' '[:upper:]')
 
-            MAC=$(jsonfilter -i "$DATA_FILE" -e "@.$USER.macs[$MAC_INDEX]" 2>/dev/null)
-            [ -z "$MAC" ] && break
+        IP="$NETWORK.$((BASE + MAC_INDEX))"
+        NAME="${USER}-$((MAC_INDEX + 1))"
 
-            MAC_UP=$(echo "$MAC" | tr '[:lower:]' '[:upper:]')
-            NETWORK=$(jsonfilter -i "$DATA_FILE" -e '@._network' 2>/dev/null)
+        {
+            echo "add dhcp host"
+            echo "set dhcp.@host[-1].name=$NAME"
+            echo "set dhcp.@host[-1].mac=$MAC_UP"
+            echo "set dhcp.@host[-1].ip=$IP"
+            echo "set dhcp.@host[-1].leasetime=infinite"
+            echo "set dhcp.@host[-1].tag=bandix"
+        } >> "$TMP_UCI"
 
-            # fallback if missing
-            [ -z "$NETWORK" ] && NETWORK="192.168.2"
+        MAC_INDEX=$((MAC_INDEX + 1))
 
-            # ✅ ADD THIS LINE (3-octet protection)
-            echo "$NETWORK" | grep -Eq '^([0-9]{1,3}\.){2}[0-9]{1,3}$' || NETWORK="192.168.2"
+    done < "$CACHE"
 
-            IP="$NETWORK.$((BASE + MAC_INDEX))"
-            NAME="${USER}-$((MAC_INDEX + 1))"
+    # --- APPLY IN ONE GO ---
+    if ! uci batch < "$TMP_UCI" >/dev/null 2>&1; then
+        echo "[Bandix] uci batch failed" >> "$LOG"
+    fi
 
-            SECTION=$(uci add dhcp host)
+    if ! uci commit dhcp >/dev/null 2>&1; then
+        echo "[Bandix] uci commit failed" >> "$LOG"
+    fi
 
-            uci set dhcp.$SECTION.name="$NAME"
-            uci add_list dhcp.$SECTION.mac="$MAC_UP"
-            uci set dhcp.$SECTION.ip="$IP"
-            uci set dhcp.$SECTION.leasetime='infinite'
-            uci set dhcp.$SECTION.tag='bandix'
+    # --- CLEANUP NETWORK STATE ---
+    : > /tmp/dhcp.leases 2>/dev/null
+    ip neigh flush all >/dev/null 2>&1
 
-            MAC_INDEX=$((MAC_INDEX + 1))
-        done
-
-        [ "$MAC_INDEX" -gt 0 ] && USER_INDEX=$((USER_INDEX + 1))
-    done
-
-    uci commit dhcp || return 1
-
-    ubus call service reload '{"name":"dnsmasq"}' 2>/dev/null \
-        || /etc/init.d/dnsmasq restart \
-        || return 1
+    (
+        ubus call service reload '{"name":"dnsmasq"}' >/dev/null 2>&1 \
+            || /etc/init.d/dnsmasq restart >/dev/null 2>&1
+    ) &
 
     return 0
 }
 
+generate_dhcp_fp() {
+
+    CACHE="$TMP_BASE/bandix.cache"
+
+    NETWORK=$(grep '^META|network|' "$CACHE" | cut -d'|' -f3)
+    [ -z "$NETWORK" ] && NETWORK="192.168.2"
+
+    case "$NETWORK" in
+        [0-9]*.[0-9]*.[0-9]*) ;;
+        *) NETWORK="192.168.2" ;;
+    esac
+
+    USER_INDEX=0
+    CURRENT_USER=""
+    MAC_INDEX=0
+
+    while IFS='|' read -r USER MAC QUOTA; do
+
+        # skip META lines
+        [ "$USER" = "META" ] && continue
+
+        # new user → reset MAC index
+        if [ "$USER" != "$CURRENT_USER" ]; then
+            CURRENT_USER="$USER"
+            MAC_INDEX=0
+            BASE=$((20 + USER_INDEX * 10))
+            USER_INDEX=$((USER_INDEX + 1))
+        fi
+
+        MAC_UP=$(echo "$MAC" | tr '[:lower:]' '[:upper:]')
+        IP="$NETWORK.$((BASE + MAC_INDEX))"
+        NAME="${USER}-$((MAC_INDEX + 1))"
+
+        echo "$NAME|$MAC_UP|$IP"
+
+        MAC_INDEX=$((MAC_INDEX + 1))
+
+    done < "$CACHE" | sort | md5sum | cut -d' ' -f1
+}
+
+generate_quota_fp() {
+
+    CACHE="$TMP_BASE/bandix.cache"
+
+    MULTIPLIER=$(grep '^META|multiplier|' "$CACHE" | cut -d'|' -f3)
+    [ -z "$MULTIPLIER" ] && MULTIPLIER=1
+
+    ADMIN=$(grep '^META|admin|' "$CACHE" | cut -d'|' -f3)
+    ZONE=$(grep '^META|zone|' "$CACHE" | cut -d'|' -f3)
+
+    {
+        echo "MULTIPLIER=$MULTIPLIER"
+        echo "ADMIN=$ADMIN"
+        echo "ZONE=$ZONE"
+
+        while IFS='|' read -r USER MAC QUOTA; do
+
+            # skip META lines
+            [ "$USER" = "META" ] && continue
+
+            MAC_UP=$(echo "$MAC" | tr '[:lower:]' '[:upper:]')
+            [ -z "$QUOTA" ] && QUOTA=0
+
+            echo "$USER|$MAC_UP|$QUOTA"
+
+        done < "$CACHE"
+
+    } | sort | md5sum | cut -d' ' -f1
+}
+
 update_cron() {
 
-    REFRESH=$(jsonfilter -i "$DATA_FILE" -e '@._refresh' 2>/dev/null)
+    CACHE="$TMP_BASE/bandix.cache"
+
+    REFRESH=$(grep '^META|refresh|' "$CACHE" | cut -d'|' -f3)
+
     [ -z "$REFRESH" ] && REFRESH=2
     [ "$REFRESH" -lt 1 ] && REFRESH=1
     [ "$REFRESH" -gt 60 ] && REFRESH=60
 
-    # remove old bandix cron
-    sed -i '/bandix-cron/d' /etc/crontabs/root
+    CRON_FILE="/etc/crontabs/root"
 
-    # add new one
-    echo "*/$REFRESH * * * * /usr/bin/bandix-flush && /usr/bin/bandix-quota # bandix-cron" >> /etc/crontabs/root
+    # 🔥 REMOVE ALL existing bandix-quota entries
+    grep -v 'bandix-quota' "$CRON_FILE" > "$CRON_FILE.tmp"
+    mv "$CRON_FILE.tmp" "$CRON_FILE"
+
+    # 🔥 ADD SINGLE clean entry
+    echo "*/$REFRESH * * * * /usr/bin/bandix-quota" >> "$CRON_FILE"
 
     # reload cron
     /etc/init.d/cron restart
+}
+
+build_cache() {
+
+    CACHE="$TMP_BASE/bandix.cache"
+    : > "$CACHE"
+
+    # --- META ---
+    NETWORK=$(jsonfilter -i "$DATA_FILE" -e '@._network' 2>/dev/null)
+    REFRESH=$(jsonfilter -i "$DATA_FILE" -e '@._refresh' 2>/dev/null)
+    MULTIPLIER=$(jsonfilter -i "$DATA_FILE" -e '@._multiplier' 2>/dev/null)
+    ADMIN=$(jsonfilter -i "$DATA_FILE" -e '@._admin' 2>/dev/null)
+    ZONE=$(jsonfilter -i "$DATA_FILE" -e '@._zone' 2>/dev/null)
+
+    echo "META|network|$NETWORK" >> "$CACHE"
+    echo "META|refresh|$REFRESH" >> "$CACHE"
+    echo "META|multiplier|$MULTIPLIER" >> "$CACHE"
+    echo "META|admin|$ADMIN" >> "$CACHE"
+    echo "META|zone|$ZONE" >> "$CACHE"
+
+    # --- USERS ---
+    USERS=$(jsonfilter -i "$DATA_FILE" -e '@' | \
+        tr '{},' '\n' | grep ':' | cut -d':' -f1 | tr -d '" ')
+
+    for USER in $USERS; do
+
+        # skip system keys
+        echo "$USER" | grep -q "^_" && continue
+        echo "$USER" | grep -Eq '^[0-9]+$' && continue
+
+        # quota
+        QUOTA=$(jsonfilter -i "$DATA_FILE" -e "@.$USER.quota" 2>/dev/null)
+        [ -z "$QUOTA" ] && QUOTA=0
+
+        INDEX=0
+        while true; do
+            MAC=$(jsonfilter -i "$DATA_FILE" -e "@.$USER.macs[$INDEX]" 2>/dev/null)
+            [ -z "$MAC" ] && break
+
+            echo "$USER|$MAC|$QUOTA" >> "$CACHE"
+
+            INDEX=$((INDEX + 1))
+        done
+    done
 }
 # -------------------------
 
@@ -183,30 +299,15 @@ if [ "$ACTION" = "cleanup" ]; then
         exit 1
     }
 
-    echo "[Bandix] CLEANUP TRIGGERED" >> /tmp/bandix.log
+    echo "[Bandix] CLEANUP TRIGGERED" >> "$LOG"
 
-    rm -rf /usr/share/bandix/* 2>> /tmp/bandix.log
+    rm -rf /usr/share/bandix/* 2>> "$LOG"
 
-    /etc/init.d/bandix restart >> /tmp/bandix.log 2>&1 || {
-        echo "[Bandix] restart failed" >> /tmp/bandix.log
+    /etc/init.d/bandix restart >> "$LOG" 2>&1 || {
+        echo "[Bandix] restart failed" >> "$LOG"
         respond '{"status":"error","message":"restart_failed"}'
         exit 1
     }
-
-    # ⏱️ delayed flush in background (non-blocking)
-    (
-        sleep 10
-
-        /usr/bin/bandix-flush >> /tmp/bandix.log 2>&1 || {
-            echo "[Bandix] flush failed" >> /tmp/bandix.log
-        }
-
-        # 🔥 NOW rebuild firewall AFTER flush
-        /usr/bin/bandix-quota force >> /tmp/bandix.log 2>&1 || {
-            echo "[Bandix] quota after flush failed" >> /tmp/bandix.log
-        }
-
-    ) &
 
     respond '{"status":"ok"}'
     exit 0
@@ -247,41 +348,79 @@ mkdir -p /www/data
 echo "$DATA" > "$TMP_FILE" || exit 1
 cp "$TMP_FILE" "$DATA_FILE" || exit 1
 rm -f "$TMP_FILE"
-sync
+
+build_cache
+cat "$TMP_BASE/bandix.cache" >> "$LOG"
+
 
 [ -s "$DATA_FILE" ] || {
-    echo "[Bandix] ERROR: users.json empty" >> /tmp/bandix.log
+    echo "[Bandix] ERROR: users.json empty" >> "$LOG"
     exit 1
 }
 
-OLD_FP_FILE="/tmp/bandix_users.fp"
+DHCP_FP_FILE="$TMP_BASE/bandix_dhcp.fp"
+REFRESH_FP_FILE="$TMP_BASE/bandix_refresh.fp"
+QUOTA_FP_FILE="$TMP_BASE/bandix_quota.fp"
 
-NEW_FP="$(generate_users_fingerprint "$DATA_FILE")"
-echo "[Bandix] FP=$NEW_FP" >> /tmp/bandix.log
-OLD_FP="$(cat "$OLD_FP_FILE" 2>/dev/null)"
+NEW_QUOTA_FP="$(generate_quota_fp)"
+OLD_QUOTA_FP="$(cat "$QUOTA_FP_FILE" 2>/dev/null)"
 
-if add_dhcp_leases; then
-    echo "$NEW_FP" > "$OLD_FP_FILE"
+NEW_DHCP_FP="$(generate_dhcp_fp)"
+OLD_DHCP_FP="$(cat "$DHCP_FP_FILE" 2>/dev/null)"
 
-    # update cron ONLY when users changed
-    REFRESH=$(jsonfilter -i "$DATA_FILE" -e '@._refresh' 2>/dev/null)
-    [ -z "$REFRESH" ] && REFRESH=2
+NEW_REFRESH=$(grep '^META|refresh|' "$TMP_BASE/bandix.cache" | cut -d'|' -f3)
+echo "$NEW_REFRESH" | grep -Eq '^[0-9]+$' || NEW_REFRESH=2
+OLD_REFRESH="$(cat "$REFRESH_FP_FILE" 2>/dev/null)"
 
-    sed -i '/bandix-cron/d' /etc/crontabs/root
-    echo "*/$REFRESH * * * * /usr/bin/bandix-flush && /usr/bin/bandix-quota # bandix-cron" >> /etc/crontabs/root
-    /etc/init.d/cron restart
+echo "[Bandix] DHCP_FP=$NEW_DHCP_FP" >> "$LOG"
 
-    # ✅ RUN ONLY WHEN CHANGED (same logic)
-    /usr/bin/generate-hosts.sh >> /tmp/bandix.log 2>&1 || \
-        echo "[Bandix] generate-hosts failed" >> /tmp/bandix.log
+
+# ---- DHCP changes ----
+if [ "$NEW_DHCP_FP" != "$OLD_DHCP_FP" ]; then
+
+    echo "[Bandix] DHCP changed -> rebuilding" >> "$LOG"
+
+    if add_dhcp_leases; then
+        echo "$NEW_DHCP_FP" > "$DHCP_FP_FILE"
+
+        # ✅ RUN ONLY WHEN CHANGED (same logic)
+        /usr/bin/generate-hosts.sh >> "$LOG" 2>&1 || true
+
+    else
+        echo "[Bandix] DHCP rebuild failed" >> "$LOG"
+        respond '{"status":"error","message":"dhcp_failed"}'
+        exit 0
+    fi
 
 else
-    echo "[Bandix] USERS unchanged -> skip DHCP rebuild" >> /tmp/bandix.log
+    echo "[Bandix] DHCP unchanged" >> "$LOG"
 fi
 
-# ✅ APPLY QUOTA IMMEDIATELY
-/usr/bin/bandix-quota force >> /tmp/bandix.log 2>&1 || \
-echo "[Bandix] quota failed" >> /tmp/bandix.log
+
+# ---- REFRESH changes ----
+if [ "$NEW_REFRESH" != "$OLD_REFRESH" ]; then
+
+    echo "[Bandix] REFRESH changed -> updating cron" >> "$LOG"
+
+    update_cron
+    echo "$NEW_REFRESH" > "$REFRESH_FP_FILE"
+
+else
+    echo "[Bandix] REFRESH unchanged" >> "$LOG"
+fi
+
+# ---- QUOTA changes ----
+if [ "$NEW_QUOTA_FP" != "$OLD_QUOTA_FP" ]; then
+
+    echo "[Bandix] QUOTA changed -> applying" >> "$LOG"
+
+    /usr/bin/bandix-quota force >> "$LOG" 2>&1 || true
+
+    echo "$NEW_QUOTA_FP" > "$QUOTA_FP_FILE"
+
+else
+    echo "[Bandix] QUOTA unchanged" >> "$LOG"
+fi
 
 respond '{"status":"ok"}'
 exit 0
