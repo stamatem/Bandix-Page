@@ -7,7 +7,6 @@ mkdir -p /www/data
 
 # Create default JSON files (if missing)
 [ -f /www/data/users.json ] || echo '{}' > /www/data/users.json
-[ -f /www/data/bandix-public.json ] || echo '{}' > /www/data/bandix-public.json
 if [ ! -f /www/data/users-pay.json ]; then
     echo '{"password":"password","paid":{}}' > /www/data/users-pay.json
 fi
@@ -17,32 +16,12 @@ chmod 664 /www/data/*.json 2>/dev/null
 
 # Ensure scripts are executable
 [ -d /www/cgi-bin ] && chmod +x /www/cgi-bin/* 2>/dev/null
-[ -f /usr/bin/bandix-flush ] && chmod +x /usr/bin/bandix-flush
 [ -f /usr/bin/bandix-quota ] && chmod +x /usr/bin/bandix-quota
 [ -f /usr/bin/generate-hosts.sh ] && chmod +x /usr/bin/generate-hosts.sh
 
 # data permissions
 chown -R root:nogroup /www/data
 chmod -R 775 /www/data
-
-# -------------------------
-# ensure devices symlink at boot (rc.local)
-# -------------------------
-
-RCLOCAL="/etc/rc.local"
-LINE="/usr/bin/generate-hosts.sh; ln -sf /tmp/devices.txt /www/devices.txt"
-
-# create rc.local if missing
-if [ ! -f "$RCLOCAL" ]; then
-    echo "#!/bin/sh" > "$RCLOCAL"
-    echo "exit 0" >> "$RCLOCAL"
-    chmod +x "$RCLOCAL"
-fi
-
-# add line only if not already present
-grep -q "devices.txt" "$RCLOCAL" 2>/dev/null || {
-    sed -i "\$i $LINE" "$RCLOCAL"
-}
 
 # generate devices file if script exists
 if [ -x /usr/bin/generate-hosts.sh ]; then
