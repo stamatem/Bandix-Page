@@ -3,7 +3,16 @@
 FORCE=0
 [ "$1" = "force" ] && FORCE=1
 
-LOCK="/tmp/bandix-quota.lock"
+MODE="runtime"
+[ "$1" = "force" ] && MODE="config"
+
+mkdir -p /tmp/bandixpage
+mkdir -p /www/data
+
+ln -sf /tmp/bandixpage/bandix-buffer.json /www/data/bandix-buffer.json
+ln -sf /tmp/bandixpage/bandixquota.log /www/data/bandixquota.log
+
+LOCK="/tmp/bandixpage/bandix-quota.lock"
 
 # prevent overlap
 if [ -d "$LOCK" ]; then
@@ -19,14 +28,19 @@ fi
 
 trap 'rm -rf "$LOCK"' EXIT INT TERM
 
-LOG="/tmp/bandixquota.log"
+LOG_DIR="/tmp/bandixpage"
+LOG="$LOG_DIR/bandixquota.log"
+
+# write log
 echo "" > "$LOG"
-echo "QUOTA RUN $(date)" >> $LOG
+echo "QUOTA RUN $(date)" >> "$LOG"
 
 USERS_FILE="/www/data/users.json"
-DATA="/www/data/bandix-public.json"
+DATA="/www/data/bandix-buffer.json"
 
 [ ! -f "$DATA" ] && exit 0
+
+jsonfilter -i "$DATA" -e '@' >/dev/null 2>&1 || exit 0
 
 # 🔥 CHECK IF ANY REAL USERS EXIST (SAFE)
 HAS_USERS=0
@@ -68,7 +82,7 @@ fi
 echo "[Bandix-Quota] HAS_USERS=$HAS_USERS" >> $LOG
 [ -z "$MULT" ] && MULT=1
 
-TMP_MAP="/tmp/bandix_map"
+TMP_MAP="/$LOG_DIR/bandix_map"
 rm -f "$TMP_MAP"
 touch "$TMP_MAP"
 
@@ -141,11 +155,11 @@ add_firewall_rules() {
     COUNT=$((COUNT - 1))
 
     while [ "$COUNT" -ge 0 ]; do
-        COMMENT=$(uci get firewall.@rule[$COUNT].comment 2>/dev/null)
+        NAME=$(uci get firewall.@rule[$COUNT].name 2>/dev/null)
 
-        if [ "$COMMENT" = "bandix" ]; then
+        echo "$NAME" | grep -q "^bandix_" && {
             uci delete firewall.@rule[$COUNT]
-        fi
+        }
 
         COUNT=$((COUNT - 1))
     done
@@ -186,7 +200,6 @@ add_firewall_rules() {
             uci set firewall.$SECTION.enabled='0'
             uci set firewall.$SECTION.dest='*'
             uci set firewall.$SECTION.proto='all'
-            uci set firewall.$SECTION.comment='bandix'
 
             echo "[Bandix-Quota] ADD RULE $USER $MAC_UP" >> $LOG
 
@@ -212,7 +225,6 @@ ensure_page_rule() {
         uci set firewall.$SECTION.dest_port='22 80 443 1025 1026 7681'
         uci set firewall.$SECTION.proto='tcp'
         uci set firewall.$SECTION.target='ACCEPT'
-        uci set firewall.$SECTION.comment='bandix'
 
         CHANGED=1
         echo "[Bandix-Quota] PAGE rule created" >> $LOG
@@ -244,20 +256,11 @@ ensure_known_rule() {
         uci set firewall.$SECTION.src="$ZONE"
         uci set firewall.$SECTION.dest='*'
         uci set firewall.$SECTION.proto='all'
-        uci set firewall.$SECTION.comment='bandix'
+        CHANGED=1
         echo "[Bandix-Quota] KNOWN rule created" >> $LOG
-        CHANGED=1
     fi
 
-    # enforce base config only if changed
-
-    OLD_TARGET=$(uci get firewall.$SECTION.target 2>/dev/null)
-    if [ "$OLD_TARGET" != "ACCEPT" ]; then
-        uci set firewall.$SECTION.target='ACCEPT'
-        CHANGED=1
-        echo "[Bandix-Quota] KNOWN target fixed → ACCEPT" >> $LOG
-    fi
-
+    # always enabled
     OLD_ENABLED=$(uci get firewall.$SECTION.enabled 2>/dev/null)
     if [ "$OLD_ENABLED" != "1" ]; then
         uci set firewall.$SECTION.enabled='1'
@@ -265,62 +268,47 @@ ensure_known_rule() {
         echo "[Bandix-Quota] KNOWN enabled fixed → 1" >> $LOG
     fi
 
-    # 🔥 rebuild MAC list ONLY if different
-    OLD_MACS=$(uci -q get firewall.$SECTION.src_mac | tr '\n' ' ')
+    # always ACCEPT
+    OLD_TARGET=$(uci get firewall.$SECTION.target 2>/dev/null)
+    if [ "$OLD_TARGET" != "ACCEPT" ]; then
+        uci set firewall.$SECTION.target='ACCEPT'
+        CHANGED=1
+        echo "[Bandix-Quota] KNOWN target fixed → ACCEPT" >> $LOG
+    fi
 
+    # 🔥 BUILD MAC LIST (CONFIG MODE ONLY)
     NEW_MACS=""
 
     for USER in $USERS; do
+
         echo "$USER" | grep -q "^_" && continue
-        echo "$USER" | grep -q "quota\|macs" && continue
+        echo "$USER" | grep -Eq '^(quota|macs)$' && continue
 
         TEST=$(echo "$USERS_RAW" | jsonfilter -e "@.$USER.macs[0]" 2>/dev/null)
         [ -z "$TEST" ] && continue
 
-        # compute usage (same as before)
-        TOTAL_BYTES=0
         MAC_INDEX=0
-
         while true; do
             MAC=$(echo "$USERS_RAW" | jsonfilter -e "@.$USER.macs[$MAC_INDEX]" 2>/dev/null)
             [ -z "$MAC" ] && break
 
-            MAC_L=$(echo "$MAC" | tr '[:upper:]' '[:lower:]')
-            VALUE=$(grep "^$MAC_L " "$TMP_MAP" | awk '{sum+=$2} END{print sum}')
-            [ -z "$VALUE" ] && VALUE=0
+            MAC_UP=$(echo "$MAC" | tr '[:lower:]' '[:upper:]')
+            NEW_MACS="$NEW_MACS $MAC_UP"
 
-            TOTAL_BYTES=$((TOTAL_BYTES + VALUE))
             MAC_INDEX=$((MAC_INDEX + 1))
         done
 
-        TOTAL_GB=$(awk "BEGIN {printf \"%.2f\", ($TOTAL_BYTES / 1000000000) * $MULT}")
-        QUOTA=$(echo "$USERS_RAW" | jsonfilter -e "@.$USER.quota")
-        [ -z "$QUOTA" ] && QUOTA=0
-
-        OVER=$(awk "BEGIN {print ($TOTAL_GB > $QUOTA) ? 1 : 0}")
-
-        NO_BLOCK=$(echo "$USERS_RAW" | jsonfilter -e '@._no_block')
-        [ "$USER" = "$NO_BLOCK" ] && OVER=0
-
-        if [ "$OVER" = "0" ]; then
-            MAC_INDEX=0
-            while true; do
-                MAC=$(echo "$USERS_RAW" | jsonfilter -e "@.$USER.macs[$MAC_INDEX]" 2>/dev/null)
-                [ -z "$MAC" ] && break
-
-                MAC_UP=$(echo "$MAC" | tr '[:lower:]' '[:upper:]')
-                NEW_MACS="$NEW_MACS $MAC_UP"
-
-                MAC_INDEX=$((MAC_INDEX + 1))
-            done
-        fi
     done
 
-    # normalize
+    # normalize list
     NEW_MACS=$(echo "$NEW_MACS" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+
+    # get current MAC list
+    OLD_MACS=$(uci -q get firewall.$SECTION.src_mac | tr '\n' ' ')
     OLD_MACS=$(echo "$OLD_MACS" | tr ' ' '\n' | sort -u | tr '\n' ' ')
 
     if [ "$NEW_MACS" != "$OLD_MACS" ]; then
+
         uci delete firewall.$SECTION.src_mac 2>/dev/null
 
         for M in $NEW_MACS; do
@@ -328,19 +316,10 @@ ensure_known_rule() {
         done
 
         CHANGED=1
-        echo "[Bandix-Quota] KNOWN MAC list updated" >> $LOG
+        echo "[Bandix-Quota] KNOWN MAC list rebuilt" >> $LOG
+
     else
         echo "[Bandix-Quota] KNOWN MAC list unchanged" >> $LOG
-    fi
-
-    # safeguard
-    if [ -z "$NEW_MACS" ]; then
-        OLD_ENABLED=$(uci get firewall.$SECTION.enabled 2>/dev/null)
-        if [ "$OLD_ENABLED" != "0" ]; then
-            uci set firewall.$SECTION.enabled='0'
-            CHANGED=1
-            echo "[Bandix-Quota] KNOWN disabled (no MACs)" >> $LOG
-        fi
     fi
 }
 
@@ -357,7 +336,6 @@ ensure_unknown_rule() {
         uci set firewall.$SECTION.src="$ZONE"
         uci set firewall.$SECTION.dest='*'
         uci set firewall.$SECTION.proto='all'
-        uci set firewall.$SECTION.comment='bandix'
         CHANGED=1
         echo "[Bandix-Quota] UNKNOWN rule created" >> $LOG
     fi
@@ -369,19 +347,12 @@ ensure_unknown_rule() {
         echo "[Bandix-Quota] UNKNOWN enabled fixed → 1" >> $LOG
     fi
 
-    # 🔥 ACCEPT only when there are NO users
-    if [ "$HAS_USERS" = "1" ]; then
-        NEW_TARGET="REJECT"
-    else
-        NEW_TARGET="ACCEPT"
-    fi
-
     OLD_TARGET=$(uci get firewall.$SECTION.target 2>/dev/null)
 
-    if [ "$NEW_TARGET" != "$OLD_TARGET" ]; then
-        uci set firewall.$SECTION.target="$NEW_TARGET"
+    if [ "$OLD_TARGET" != "REJECT" ]; then
+        uci set firewall.$SECTION.target='REJECT'
         CHANGED=1
-        echo "[Bandix-Quota] UNKNOWN target updated ($NEW_TARGET)" >> $LOG
+        echo "[Bandix-Quota] UNKNOWN target fixed → REJECT" >> $LOG
     else
         echo "[Bandix-Quota] UNKNOWN target unchanged" >> $LOG
     fi
@@ -507,26 +478,47 @@ done
 
 # 🔥 ORDER MATTERS
 
-if [ "$HAS_USERS" = "1" ]; then
+if [ "$MODE" = "config" ]; then
 
-    ensure_page_rule       # 🔥 FIRST (new)
-    ensure_known_rule      # ✅ FIRST → allow baseline
-    ensure_unknown_rule    # ✅ LAST → fallback block
+    if [ "$HAS_USERS" = "1" ]; then
 
-    echo "[Bandix-Quota] KNOWN + UNKNOWN RULES ACTIVE" >> $LOG
+        echo "[Bandix-Quota] CONFIG → applying rules (users exist)" >> $LOG
+
+        ensure_page_rule
+        ensure_known_rule
+        ensure_unknown_rule
+
+        move_rule_to_top "bandix_page"
+        move_rule_to_bottom "bandix_unknown"
+
+    else
+
+        echo "[Bandix-Quota] CONFIG → removing ALL bandix rules (no users)" >> $LOG
+
+        COUNT=$(uci show firewall | grep "=rule" | wc -l)
+        COUNT=$((COUNT - 1))
+
+        while [ "$COUNT" -ge 0 ]; do
+            NAME=$(uci get firewall.@rule[$COUNT].name 2>/dev/null)
+
+            echo "$NAME" | grep -q "^bandix_" && {
+                uci delete firewall.@rule[$COUNT]
+            }
+
+            COUNT=$((COUNT - 1))
+        done
+
+        CHANGED=1
+    fi
 
 else
-    echo "[Bandix-Quota] SKIP RULES (no users)" >> $LOG
+    echo "[Bandix-Quota] RUNTIME MODE → skipping rule rebuild" >> $LOG
 fi
-
-# 🔥 ALWAYS push UNKNOWN rule to bottom (last rule)
-move_rule_to_top "bandix_page"
-move_rule_to_bottom "bandix_unknown"
 
 # now commit + reload everything together
 if [ "$CHANGED" = "1" ] || [ "$FIREWALL_REBUILT" = "1" ]; then
     uci commit firewall
-    /etc/init.d/firewall reload
+    /etc/init.d/firewall reload >/dev/null 2>&1
     echo "[Bandix-Quota] FIREWALL RELOADED $(date)" >> $LOG
 
     # 🔥 KILL ONLY USERS OVER QUOTA (NOW IN CORRECT PLACE)
@@ -586,3 +578,4 @@ fi
 rm -f "$TMP_MAP"
 
 echo "[Bandix-Quota] QUOTA DONE" >> $LOG
+
