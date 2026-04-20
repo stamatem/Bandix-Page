@@ -8,6 +8,50 @@
 <title>Usage</title>
 
 <style>
+/* base container */
+#statusDot {
+  display: inline-block;
+}
+
+/* shared dot size */
+.status-dot-green,
+.status-dot-red {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+}
+
+body.paused * {
+  animation-play-state: paused !important;
+}
+
+/* 🟢 green pulsing */
+.status-dot-green {
+  background: #22c55e;
+  animation: pulseGreen 1.6s infinite;
+}
+
+/* 🔴 red static */
+.status-dot-red {
+  background: #ef4444;
+}
+
+/* smooth glow pulse */
+@keyframes pulseGreen {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(34,197,94,0.7);
+  }
+  70% {
+    transform: scale(1.1);
+    box-shadow: 0 0 10px 6px rgba(34,197,94,0);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(34,197,94,0);
+  }
+}
+
 body {
   background: radial-gradient(circle at top left, #0f172a, #020617 70%);
   color: white;
@@ -23,9 +67,9 @@ body::before {
   top: 0;
   left: 0;
   width: 100%;
-  height: 120px;
-  background: radial-gradient(circle, rgba(59,130,246,0.25), transparent 70%);
+  height: 100px;
   pointer-events: none;
+  background: radial-gradient(circle, rgba(59,130,246,0.08), transparent 70%);
 }
 
 html {
@@ -46,7 +90,7 @@ html {
 }
 
 h2 {
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 700;
   margin: 0;
   display: flex;
@@ -82,8 +126,7 @@ h2 {
 .card {
   position: relative;
   transition: transform 0.25s ease, box-shadow 0.25s ease;
-  background: rgba(15, 23, 42, 0.7);
-  backdrop-filter: blur(14px);
+  background: rgba(15, 30, 60, 0.9);
   border-radius: 18px;
   padding: 16px;
   margin-bottom: 16px;
@@ -155,47 +198,31 @@ h2 {
   justify-content: center;
   color: #000;
   transition: width 0.4s ease;
-  background-size: 200% 100%;
-  animation: flow 3s linear infinite;
-}
-
-@keyframes flow {
-  0% {
-    background-position: 0% 50%;
-  }
-  100% {
-    background-position: 200% 50%;
-  }
 }
 
 .bar-fill::after {
   content: "";
   position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
+  inset: 0;
   background: linear-gradient(
-    120deg,
-    transparent,
-    rgba(255,255,255,0.25),
-    transparent
+    110deg,
+    transparent 30%,
+    rgba(255,255,255,0.2) 50%,
+    transparent 70%
   );
-  animation: shimmer 3s infinite;
+  transform: translateX(-100%);
+  animation: sweep 4.5s infinite;
 }
 
-@keyframes shimmer {
-  0% {
-    left: -100%;
-  }
-  100% {
-    left: 100%;
+@keyframes sweep {
+  to {
+    transform: translateX(100%);
   }
 }
 
 @media (max-width:480px) {
   .container { padding:10px; }
-  h2 { font-size:16px; }
+  h2 { font-size:18px; }
   .user { font-size:18px; }
   .usage { font-size:14px; }
   .bar-bg { height:26px; }
@@ -214,11 +241,14 @@ body {
 <div class="container">
 
 <div class="header">
-  <h2>
-    👥 Usage
-    <span id="statusDot" style="margin-left:6px;">⚪</span>
-    <span id="statusTime" style="font-size:12px; opacity:0.7; margin-left:4px;"></span>
-  </h2>
+  <div>
+    <h2>👥Traffic Status</h2>
+    <div style="display:flex; align-items:center; gap:6px; font-size:15px; opacity:0.75; margin-top:4px;">
+      <span id="statusDot"></span>
+      <span id="statusTime"></span>
+    </div>
+  </div>
+
   <a href="/data/admin/" class="admin-btn">⚙ Admin</a>
 </div>
 
@@ -227,9 +257,8 @@ body {
 </div>
 
 <script>
-function bytesToGB(bytes) {
-  return bytes / 1e9;
-}
+const elements = {};
+let lastDataText = '';
 
 async function load() {
   try {
@@ -243,8 +272,7 @@ async function load() {
       payData = await payRes.json();
     } catch(e) {}
 
-    const dataRes = await fetch('/data/bandix-public.json?t=' + Date.now());
-
+    const dataRes = await fetch('/data/bandix-buffer.json?t=' + Date.now());
     if (!dataRes.ok) throw new Error("HTTP " + dataRes.status);
 
     const text = await dataRes.text();
@@ -253,6 +281,15 @@ async function load() {
       document.getElementById('list').innerText = 'No data yet';
       return;
     }
+
+    // ✅ ADD THIS BLOCK RIGHT HERE
+    if (text === lastDataText) {
+      document.body.classList.add('paused');
+      return;
+    }
+
+    document.body.classList.remove('paused');
+    lastDataText = text;    
 
     let json;
     try {
@@ -266,7 +303,7 @@ async function load() {
 
     let devices = Array.isArray(json.devices) ? json.devices : [];
 
-    /* ✅ FIX: filter ALL router/self devices */
+    // filter router/self devices
     devices = devices.filter(d =>
       d.ip &&
       !d.ip.endsWith(".1") &&
@@ -274,6 +311,7 @@ async function load() {
     );
 
     let grouped = {};
+    let lastSeen = {};
 
     devices.forEach(d => {
       const mac = d.mac.toLowerCase();
@@ -283,6 +321,10 @@ async function load() {
 
       if (!grouped[mac]) grouped[mac] = 0;
       grouped[mac] += rx + tx;
+
+      if (!lastSeen[mac] || d.last_online_ts > lastSeen[mac]) {
+        lastSeen[mac] = d.last_online_ts;
+      }
     });
 
     const multiplier = users._multiplier || 1;
@@ -290,33 +332,45 @@ async function load() {
     let userList = [];
 
     for (let user in users) {
-      if (
-        user === "_multiplier" ||
-        user.startsWith("_")
-      ) continue;
+      if (user === "_multiplier" || user.startsWith("_")) continue;
 
       let totalBytes = 0;
       let macs = users[user].macs || [];
+      let latestSeen = 0;
 
       macs.forEach(mac => {
-        totalBytes += grouped[mac.toLowerCase()] || 0;
+        const m = mac.toLowerCase();
+
+        totalBytes += grouped[m] || 0;
+
+        if (lastSeen[m] && lastSeen[m] > latestSeen) {
+          latestSeen = lastSeen[m];
+        }
       });
 
       userList.push({
         name: user,
-        totalBytes: totalBytes
+        totalBytes,
+        lastSeen: latestSeen
       });
     }
 
-    userList.sort((a,b) => b.totalBytes - a.totalBytes);
+    userList.sort((a, b) => b.totalBytes - a.totalBytes);
 
     const list = document.getElementById('list');
-    list.innerHTML = '';
-
+    if (list.textContent.includes('Loading')) {
+      list.textContent = '';
+    }
     let grandTotalGB = 0;
 
+    // ✅ MAIN LOOP (FIXED)
     userList.forEach(entry => {
       const user = entry.name;
+
+      const now = Date.now();
+      const isOnline = (now - entry.lastSeen) <= 45000;
+      const dotClass = isOnline ? 'status-dot-green' : 'status-dot-red';
+      const statusText = isOnline ? 'Online' : 'Offline';
 
       const totalGB = (entry.totalBytes / 1e9) * multiplier;
       grandTotalGB += totalGB;
@@ -332,35 +386,83 @@ async function load() {
       if (percent > 70) color = 'linear-gradient(90deg, #facc15, #f97316)';
       if (percent > 90) color = 'linear-gradient(90deg, #ef4444, #b91c1c)';
 
-      const div = document.createElement('div');
-      div.className = 'card';
+      // ✅ CREATE ONCE
+      if (!elements[user]) {
+        const div = document.createElement('div');
+        div.className = 'card';
 
-      div.innerHTML = `
-        <div class="user">
-          ${user} ${over ? '🔴' : ''} ${payData.paid && payData.paid[user] ? '💰' : ''}
-        </div>
-
-        <div class="usage">
-          ${totalGB.toFixed(2)} GB / ${quota} GB (${percent.toFixed(0)}%)
-        </div>
-
-        <div class="bar-bg">
-          <div class="bar-fill" style="width:${percent}%; background:${color};">
-            ${percent.toFixed(0)}%
+        div.innerHTML = `
+          <div class="user" style="display:flex; justify-content:space-between; align-items:center;">
+            <span class="name"></span>
+            <span style="display:flex; align-items:center; gap:6px; font-size:14px; opacity:0.85;">
+              <span class="dot"></span>
+              <span class="text"></span>
+            </span>
           </div>
-        </div>
-      `;
 
-      list.appendChild(div);
+          <div class="usage"></div>
+
+          <div class="bar-bg">
+            <div class="bar-fill"></div>
+          </div>
+        `;
+
+        list.appendChild(div);
+
+        elements[user] = {
+          card: div,
+          name: div.querySelector('.name'),
+          usage: div.querySelector('.usage'),
+          bar: div.querySelector('.bar-fill'),
+          dot: div.querySelector('.dot'),
+          status: div.querySelector('.text')
+        };
+      }
+
+      // ✅ UPDATE ONLY
+      const el = elements[user];
+
+      el.name.innerHTML =
+        `${user} ${over ? '🔴' : ''} ${payData.paid && payData.paid[user] ? '💰' : ''}`;
+
+      el.usage.textContent =
+        `${totalGB.toFixed(2)} GB / ${quota} GB (${percent.toFixed(0)}%)`;
+
+      el.bar.style.width = percent + '%';
+      el.bar.style.background = color;
+      el.bar.textContent = percent.toFixed(0) + '%';
+
+      el.dot.className = dotClass;
+      el.status.textContent = statusText;
+
+      // keep order correct
+      if (list.lastChild !== el.card) {
+        list.appendChild(el.card);
+      }
     });
 
+    // ✅ REMOVE OLD USERS
+    const currentUsers = new Set(userList.map(u => u.name));
+
+    for (let user in elements) {
+      if (!currentUsers.has(user)) {
+        elements[user].card.remove();
+        delete elements[user];
+      }
+    }
+
+    // ✅ TOTAL CARD (recreated each time – cheap, only one)
+    const existingTotal = document.getElementById('totalCard');
+    if (existingTotal) existingTotal.remove();
+
     const totalDiv = document.createElement('div');
+    totalDiv.id = 'totalCard';
     totalDiv.className = 'card';
     totalDiv.style.border = '1px solid rgba(96,165,250,0.5)';
     totalDiv.style.boxShadow = '0 0 20px rgba(96,165,250,0.4)';
 
     totalDiv.innerHTML = `
-      <div class="user">📊 Total Usage</div>
+      <div class="user">📊 Total Traffic</div>
       <div class="usage">${grandTotalGB.toFixed(2)} GB</div>
     `;
 
@@ -379,7 +481,7 @@ function updateStatus(ts_ms) {
   if (!dot || !time) return;
 
   if (!ts_ms) {
-    dot.innerHTML = '⚪';
+    dot.className = 'status-dot-red';
     time.innerHTML = '';
     return;
   }
@@ -399,18 +501,30 @@ function updateStatus(ts_ms) {
   time.innerHTML = `Last Update: ${formatted}`;
 
   if (diff < TEN_MIN) {
-    dot.innerHTML = '🟢';
+    dot.className = 'status-dot-green';
   } else {
-    dot.innerHTML = '🔴';
-  }
+    dot.className = 'status-dot-red';
+  }  
 }
 
-setInterval(load, 2000);
+setInterval(() => {
+  if (!document.hidden) {
+    load();
+  }
+}, 10000);
 load();
 
 window.addEventListener('storage', function(e) {
   if (e.key === 'users_updated') {
     load();
+  }
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    document.body.classList.add('paused');
+  } else {
+    document.body.classList.remove('paused');
   }
 });
 </script>
