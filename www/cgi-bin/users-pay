@@ -3,6 +3,9 @@
 TMP_BASE="/tmp/bandixpage"
 mkdir -p "$TMP_BASE"
 
+PASS_FILE="/usr/share/bandix-page.json"
+PASS_TMP="$TMP_BASE/bandix-page.json.tmp"
+
 DATA_FILE="/www/data/users-pay.json"
 TMP_FILE="$TMP_BASE/users-pay.json.tmp"
 
@@ -25,15 +28,30 @@ respond() {
 
 # create file if missing
 init_file() {
-    [ -f "$DATA_FILE" ] && return
     mkdir -p /www/data
-    echo '{"password":"monitor84","paid":{}}' > "$DATA_FILE"
+
+    # Create private password file, migrating old password if it exists
+    if [ ! -f "$PASS_FILE" ]; then
+        OLD_PASS=$(jsonfilter -i "$DATA_FILE" -e '@.password' 2>/dev/null)
+        [ -z "$OLD_PASS" ] && OLD_PASS="monitor84"
+
+        echo "{\"password\":\"$OLD_PASS\"}" > "$PASS_TMP"
+        mv "$PASS_TMP" "$PASS_FILE"
+    fi
+
+    # Keep public file password-free
+    PAID=$(jsonfilter -i "$DATA_FILE" -e '@.paid' 2>/dev/null)
+    [ -z "$PAID" ] && PAID="{}"
+
+    echo "{\"paid\":$PAID}" > "$TMP_FILE"
+    mv "$TMP_FILE" "$DATA_FILE"
 }
 
 # --------------------
 
 init_file
 read_post_data
+REAL_PASS=$(jsonfilter -i "$PASS_FILE" -e '@.password')
 
 # detect GET vs POST
 if echo "$POST_DATA" | grep -q '='; then
@@ -46,7 +64,32 @@ fi
 # GET DATA
 # =========================
 if [ "$ACTION" = "get" ]; then
-    respond "$(cat "$DATA_FILE")"
+    PASS=$(echo "$POST_DATA" | jsonfilter -e '@.password')
+
+    [ "$PASS" = "$REAL_PASS" ] || {
+        respond '{"status":"error","message":"unauthorized"}'
+        exit 1
+    }
+
+    PAID=$(jsonfilter -i "$DATA_FILE" -e '@.paid')
+    [ -z "$PAID" ] && PAID="{}"
+
+    respond "{\"status\":\"ok\",\"paid\":$PAID}"
+    exit 0
+fi
+
+# =========================
+# LOGIN ACTION
+# =========================
+if [ "$ACTION" = "login" ]; then
+    PASS=$(echo "$POST_DATA" | jsonfilter -e '@.password')
+
+    if [ "$PASS" = "$REAL_PASS" ]; then
+        respond '{"status":"ok"}'
+    else
+        respond '{"status":"error","message":"unauthorized"}'
+    fi
+
     exit 0
 fi
 
@@ -89,7 +132,6 @@ fi
 # AUTH REQUIRED
 # =========================
 PASS=$(echo "$POST_DATA" | jsonfilter -e '@.password')
-REAL_PASS=$(jsonfilter -i "$DATA_FILE" -e '@.password')
 
 [ "$PASS" = "$REAL_PASS" ] || {
     respond '{"status":"error","message":"unauthorized"}'
@@ -104,10 +146,12 @@ if [ "$ACTION" = "set_paid" ]; then
     USER=$(echo "$POST_DATA" | jsonfilter -e '@.user')
     VALUE=$(echo "$POST_DATA" | jsonfilter -e '@.value')
 
-    PASS=$(jsonfilter -i "$DATA_FILE" -e '@.password')
+    echo "$USER" | grep -Eq '^[A-Za-z0-9_-]{1,32}$' || {
+        respond '{"status":"error","message":"invalid_user"}'
+        exit 1
+    }
 
-    # extract usernames safely
-    EXISTING=$(jsonfilter -i "$DATA_FILE" -e '@.paid' \
+    EXISTING=$(jsonfilter -i "$DATA_FILE" -e '@.paid' 2>/dev/null \
         | tr '{},' '\n' \
         | grep ':' \
         | cut -d':' -f1 \
@@ -119,9 +163,7 @@ if [ "$ACTION" = "set_paid" ]; then
     for u in $EXISTING; do
         [ "$u" = "$USER" ] && continue
         [ -z "$u" ] && continue
-
-        # 🔥 ignore garbage values
-        [ "$u" = "true" ] && continue
+        echo "$u" | grep -Eq '^[A-Za-z0-9_-]{1,32}$' || continue
 
         if [ $FIRST -eq 0 ]; then
             NEW_PAID="$NEW_PAID,"
@@ -141,12 +183,13 @@ if [ "$ACTION" = "set_paid" ]; then
 
     NEW_PAID="$NEW_PAID}"
 
-    echo "{\"password\":\"$PASS\",\"paid\":$NEW_PAID}" > "$TMP_FILE"
+    echo "{\"paid\":$NEW_PAID}" > "$TMP_FILE"
     mv "$TMP_FILE" "$DATA_FILE"
 
     respond '{"status":"ok"}'
     exit 0
 fi
+
 
 # =========================
 # CHANGE PASSWORD
@@ -154,14 +197,17 @@ fi
 if [ "$ACTION" = "set_password" ]; then
 
     NEW=$(echo "$POST_DATA" | jsonfilter -e '@.new')
-    PAID=$(jsonfilter -i "$DATA_FILE" -e '@.paid')
 
-    echo "{\"password\":\"$NEW\",\"paid\":$PAID}" > "$TMP_FILE"
-    mv "$TMP_FILE" "$DATA_FILE"
+    [ -n "$NEW" ] || {
+        respond '{"status":"error","message":"empty_password"}'
+        exit 1
+    }
+
+    echo "{\"password\":\"$NEW\"}" > "$PASS_TMP"
+    mv "$PASS_TMP" "$PASS_FILE"
 
     respond '{"status":"ok"}'
     exit 0
 fi
 
 respond '{"status":"error"}'
-
