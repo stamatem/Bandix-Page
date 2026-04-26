@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -55,10 +55,13 @@ body.paused * {
 body {
   background: radial-gradient(circle at top left, #0f172a, #020617 70%);
   color: white;
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
   margin: 0;
   min-height: 100dvh;
   font-size: 18px;
+
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 body::before {
@@ -99,11 +102,11 @@ h2 {
 
 .admin-btn {
   background: rgba(30,41,59,0.6);
-  padding: 12px 18px;          /* bigger */
-  border-radius: 12px;         /* slightly rounder */
+  padding: 12px 18px;
+  border-radius: 12px;
   color: #60a5fa;
   text-decoration: none;
-  font-size: 18px;             /* bigger text */
+  font-size: 18px;
   font-weight: 600;
   border: 1px solid rgba(96,165,250,0.3);
 
@@ -113,7 +116,7 @@ h2 {
 
   display: inline-flex;
   align-items: center;
-  gap: 6px;                    /* spacing if you add icon */
+  gap: 6px;
 }
 
 .admin-btn:hover {
@@ -137,6 +140,9 @@ h2 {
     0 0 25px rgba(59,130,246,0.25),
     0 0 60px rgba(59,130,246,0.15),
     inset 0 0 15px rgba(255,255,255,0.04);
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: pointer;
 }
 
 .card::before {
@@ -153,15 +159,6 @@ h2 {
   opacity: 0.25;
   filter: blur(8px);
   z-index: -1;
-}
-
-.card:hover {
-  transform: translateY(-4px) scale(1.01);
-
-  box-shadow:
-    0 0 40px rgba(59,130,246,0.45),
-    0 0 80px rgba(59,130,246,0.25),
-    inset 0 0 20px rgba(255,255,255,0.05);
 }
 
 .user {
@@ -184,8 +181,7 @@ h2 {
 }
 
 .bar-fill {
-  box-shadow: 
-    0 0 10px rgba(255,255,255,0.2),
+  box-shadow: 0 0 10px rgba(255,255,255,0.2);
   background-blend-mode: overlay;
   position: relative;
   overflow: hidden;
@@ -220,6 +216,33 @@ h2 {
   }
 }
 
+.card.active {
+  transform: translateY(-4px) scale(1.01);
+  box-shadow:
+    0 0 40px rgba(59,130,246,0.45),
+    0 0 80px rgba(59,130,246,0.25),
+    inset 0 0 20px rgba(255,255,255,0.05);
+}
+
+.dot {
+  display: inline-block;
+}
+
+.paid-box {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 16px;
+  font-weight: 700;
+
+  color: rgba(255,255,255,0.75);
+  border: 1px solid rgba(255,255,255,0.25);
+  background: rgba(255,255,255,0.05);
+
+  box-shadow:
+    inset 0 0 4px rgba(255,255,255,0.05);
+}
+
 @media (max-width:480px) {
   .container { padding:10px; }
   h2 { font-size:18px; }
@@ -229,10 +252,6 @@ h2 {
   .bar-fill { line-height:18px; }
 }
 
-body {
-  padding-top: env(safe-area-inset-top);
-  padding-bottom: env(safe-area-inset-bottom);
-}
 </style>
 </head>
 
@@ -260,6 +279,16 @@ body {
 const elements = {};
 let lastDataText = '';
 
+function toggleCard(div) {
+  if (div.classList.contains('active')) {
+    div.classList.remove('active');
+  } else {
+    document.querySelectorAll('.card.active')
+      .forEach(c => c.classList.remove('active'));
+    div.classList.add('active');
+  }
+}
+
 async function load() {
   try {
     const usersRes = await fetch('/data/users.json?t=' + Date.now());
@@ -282,15 +311,6 @@ async function load() {
       return;
     }
 
-    // ✅ ADD THIS BLOCK RIGHT HERE
-    if (text === lastDataText) {
-      document.body.classList.add('paused');
-      return;
-    }
-
-    document.body.classList.remove('paused');
-    lastDataText = text;    
-
     let json;
     try {
       json = JSON.parse(text);
@@ -301,9 +321,18 @@ async function load() {
       return;
     }
 
+    const snapshot = text + JSON.stringify(users) + JSON.stringify(payData.paid || {});
+
+    if (snapshot === lastDataText) {
+      document.body.classList.add('paused');
+      return;
+    }
+
+    document.body.classList.remove('paused');
+    lastDataText = snapshot;
+
     let devices = Array.isArray(json.devices) ? json.devices : [];
 
-    // filter router/self devices
     devices = devices.filter(d =>
       d.ip &&
       !d.ip.endsWith(".1") &&
@@ -330,6 +359,7 @@ async function load() {
     const multiplier = users._multiplier || 1;
 
     let userList = [];
+    let totalQuota = 0;
 
     for (let user in users) {
       if (user === "_multiplier" || user.startsWith("_")) continue;
@@ -348,6 +378,9 @@ async function load() {
         }
       });
 
+      const quota = users[user].quota ?? 1;
+      totalQuota += quota;
+
       userList.push({
         name: user,
         totalBytes,
@@ -361,14 +394,14 @@ async function load() {
     if (list.textContent.includes('Loading')) {
       list.textContent = '';
     }
+
     let grandTotalGB = 0;
 
-    // ✅ MAIN LOOP (FIXED)
     userList.forEach(entry => {
       const user = entry.name;
 
       const now = Date.now();
-      const isOnline = (now - entry.lastSeen) <= 45000;
+      const isOnline = entry.lastSeen && (now - entry.lastSeen <= 45000);
       const dotClass = isOnline ? 'status-dot-green' : 'status-dot-red';
       const statusText = isOnline ? 'Online' : 'Offline';
 
@@ -377,7 +410,7 @@ async function load() {
 
       const quota = users[user].quota ?? 1;
 
-      let percent = (totalGB / quota) * 100;
+      let percent = quota > 0 ? (totalGB / quota) * 100 : (totalGB > 0 ? 100 : 0);
       if (percent > 100) percent = 100;
 
       const over = totalGB > quota;
@@ -386,15 +419,20 @@ async function load() {
       if (percent > 70) color = 'linear-gradient(90deg, #facc15, #f97316)';
       if (percent > 90) color = 'linear-gradient(90deg, #ef4444, #b91c1c)';
 
-      // ✅ CREATE ONCE
       if (!elements[user]) {
         const div = document.createElement('div');
         div.className = 'card';
 
+        div.addEventListener('click', (e) => {
+          e.stopPropagation();
+          toggleCard(div);
+        });
+
         div.innerHTML = `
           <div class="user" style="display:flex; justify-content:space-between; align-items:center;">
             <span class="name"></span>
-            <span style="display:flex; align-items:center; gap:6px; font-size:14px; opacity:0.85;">
+            <span style="display:flex; align-items:center; gap:8px; font-size:14px; opacity:0.85;">
+              <span class="paid"></span>
               <span class="dot"></span>
               <span class="text"></span>
             </span>
@@ -415,15 +453,18 @@ async function load() {
           usage: div.querySelector('.usage'),
           bar: div.querySelector('.bar-fill'),
           dot: div.querySelector('.dot'),
-          status: div.querySelector('.text')
+          status: div.querySelector('.text'),
+          paid: div.querySelector('.paid')
         };
       }
 
-      // ✅ UPDATE ONLY
       const el = elements[user];
 
-      el.name.innerHTML =
-        `${user} ${over ? '🔴' : ''} ${payData.paid && payData.paid[user] ? '💰' : ''}`;
+      el.name.textContent = `${user} ${over ? '🔴' : ''}`;
+
+      el.paid.innerHTML = payData.paid && payData.paid[user]
+        ? '<span class="paid-box">PAID</span>'
+        : '';
 
       el.usage.textContent =
         `${totalGB.toFixed(2)} GB / ${quota} GB (${percent.toFixed(0)}%)`;
@@ -432,16 +473,10 @@ async function load() {
       el.bar.style.background = color;
       el.bar.textContent = percent.toFixed(0) + '%';
 
-      el.dot.className = dotClass;
+      el.dot.className = `dot ${dotClass}`;
       el.status.textContent = statusText;
-
-      // keep order correct
-      if (list.lastChild !== el.card) {
-        list.appendChild(el.card);
-      }
     });
 
-    // ✅ REMOVE OLD USERS
     const currentUsers = new Set(userList.map(u => u.name));
 
     for (let user in elements) {
@@ -451,22 +486,34 @@ async function load() {
       }
     }
 
-    // ✅ TOTAL CARD (recreated each time – cheap, only one)
     const existingTotal = document.getElementById('totalCard');
     if (existingTotal) existingTotal.remove();
+
+    const totalPercent = totalQuota > 0 ? (grandTotalGB / totalQuota) * 100 : 0;
 
     const totalDiv = document.createElement('div');
     totalDiv.id = 'totalCard';
     totalDiv.className = 'card';
     totalDiv.style.border = '1px solid rgba(96,165,250,0.5)';
     totalDiv.style.boxShadow = '0 0 20px rgba(96,165,250,0.4)';
+    totalDiv.style.cursor = 'default';
 
     totalDiv.innerHTML = `
       <div class="user">📊 Total Traffic</div>
-      <div class="usage">${grandTotalGB.toFixed(2)} GB</div>
+      <div class="usage">${grandTotalGB.toFixed(2)} GB / ${totalQuota} GB (${totalPercent.toFixed(0)}%)</div>
     `;
 
-    list.appendChild(totalDiv);
+    const fragment = document.createDocumentFragment();
+
+    userList.forEach(entry => {
+      const el = elements[entry.name];
+      fragment.appendChild(el.card);
+    });
+
+    fragment.appendChild(totalDiv);
+
+    list.innerHTML = '';
+    list.appendChild(fragment);
 
   } catch (e) {
     console.error("LOAD ERROR:", e);
@@ -491,7 +538,6 @@ function updateStatus(ts_ms) {
 
   const TEN_MIN = 10 * 60 * 1000;
 
-  // ✅ format time
   const date = new Date(ts_ms);
   const formatted = date.toLocaleTimeString([], {
     hour: '2-digit',
@@ -511,7 +557,7 @@ setInterval(() => {
   if (!document.hidden) {
     load();
   }
-}, 10000);
+}, 5000);
 load();
 
 window.addEventListener('storage', function(e) {
