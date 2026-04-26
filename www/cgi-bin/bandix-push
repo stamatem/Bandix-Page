@@ -1,39 +1,62 @@
 #!/bin/busybox sh
 
 TMP_BASE="/tmp/bandixpage"
+
 mkdir -p "$TMP_BASE"
 
 BUFFER="$TMP_BASE/bandix-buffer.json"
 TMP="$TMP_BASE/bandix-buffer.json.tmp"
+
+
 LOCK="$TMP_BASE/bandix.lock"
-
 LAST_WRITE="$TMP_BASE/last_write"
-INTERVAL=30  # seconds
 
-read_post_data() {
-    POST_DATA=$(cat)
-}
+INTERVAL=30
+MAX_SIZE=65536
 
 respond() {
-    echo "Content-Type: application/json"
-    echo ""
-    echo "$1"
+    printf "Content-Type: application/json\r\n"
+    printf "\r\n"
+    printf "%s" "$1"
+}
+
+read_post_data() {
+    if [ -n "$CONTENT_LENGTH" ]; then
+        POST_DATA=$(dd bs=1 count="$CONTENT_LENGTH" 2>/dev/null)
+    else
+        POST_DATA=$(cat)
+    fi
 }
 
 read_post_data
 
-[ -z "$POST_DATA" ] && respond '{"status":"empty"}' && exit 0
+[ -n "$POST_DATA" ] || {
+    respond '{"status":"empty"}'
+    exit 0
+}
 
-# 🚀 THROTTLE BEFORE LOCK (big win)
+SIZE=$(printf "%s" "$POST_DATA" | wc -c)
+
+[ "$SIZE" -le "$MAX_SIZE" ] || {
+    respond '{"status":"too_large"}'
+    exit 1
+}
+
+printf "%s" "$POST_DATA" | jsonfilter -e '@' >/dev/null 2>&1 || {
+    respond '{"status":"invalid_json"}'
+    exit 1
+}
+
 NOW=$(date +%s)
 LAST=$(cat "$LAST_WRITE" 2>/dev/null || echo 0)
+
+echo "$LAST" | grep -Eq '^[0-9]+$' || LAST=0
 
 if [ $((NOW - LAST)) -lt $INTERVAL ]; then
     respond '{"status":"throttled"}'
     exit 0
 fi
 
-# 🔒 stale lock cleanup
 if [ -d "$LOCK" ]; then
     AGE=$(( $(date +%s) - $(stat -c %Y "$LOCK" 2>/dev/null || echo 0) ))
     [ "$AGE" -gt 30 ] && rm -rf "$LOCK"
@@ -44,11 +67,22 @@ if ! mkdir "$LOCK" 2>/dev/null; then
     exit 0
 fi
 
-trap 'rm -rf "$LOCK"' EXIT INT TERM
+cleanup() {
+    rm -rf "$LOCK"
+    rm -f "$TMP"
+}
+trap cleanup EXIT INT TERM
 
-# write + flush (since we already passed throttle)
-echo "$POST_DATA" > "$TMP"
-mv "$TMP" "$BUFFER"
+printf "%s" "$POST_DATA" > "$TMP" || {
+    respond '{"status":"write_failed"}'
+    exit 1
+}
+
+mv "$TMP" "$BUFFER" || {
+    respond '{"status":"move_failed"}'
+    exit 1
+}
+
 echo "$NOW" > "$LAST_WRITE"
 
 respond '{"status":"flushed"}'
