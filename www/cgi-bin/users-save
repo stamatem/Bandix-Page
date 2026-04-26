@@ -5,55 +5,20 @@ LOG_DIR="$TMP_BASE"
 
 mkdir -p "$TMP_BASE"
 
-ln -sf /tmp/bandixpage/devices.txt /www/devices.txt
-
 LOG="$LOG_DIR/bandixusers.log"
-
-echo "RUN $(date)" > "$LOG"
-
-# 🔒 ATOMIC LOCK
 LOCK="$TMP_BASE/bandix-users.lock"
 
-# remove stale lock
-if [ -d "$LOCK" ]; then
-    AGE=$(( $(date +%s) - $(stat -c %Y "$LOCK" 2>/dev/null || echo 0) ))
-    if [ "$AGE" -gt 30 ]; then
-        echo "[Bandix] REMOVE STALE LOCK" >> "$LOG"
-        rm -rf "$LOCK"
-    fi
-fi
-
-if ! mkdir "$LOCK" 2>/dev/null; then
-    echo "[Bandix] LOCKED" >> "$LOG"
-    respond '{"status":"error","message":"locked"}'
-    exit 0
-fi
-
-cleanup() {
-    rm -rf "$LOCK"
-}
-trap cleanup EXIT INT TERM
-
 DATA_FILE="/www/data/users.json"
-PAY_FILE="/www/data/users-pay.json"
-
-# 🔐 load password from users-pay.json
-if [ -f "$PAY_FILE" ]; then
-    PASSWORD=$(jsonfilter -i "$PAY_FILE" -e '@.password')
-else
-    PASSWORD=""
-fi
-
+PAY_FILE="/usr/share/bandix-page.json"
+PAID_FILE="/www/data/users-pay.json"
+PAID_CLEAN_TMP="$TMP_BASE/users-pay.clean.tmp"
 TMP_FILE="$TMP_BASE/users.json.tmp"
+POST_FILE="$TMP_BASE/users.post.$$"
+CACHE="$TMP_BASE/bandix.cache"
+TMP_UCI="$TMP_BASE/bandix.uci"
 MAX_SIZE=65536
 
-read_post_data() {
-    if [ -n "$CONTENT_LENGTH" ]; then
-        read -r -n "$CONTENT_LENGTH" POST_DATA
-    else
-        POST_DATA=$(cat)
-    fi
-}
+echo "RUN $(date)" > "$LOG"
 
 respond() {
     printf "Content-Type: application/json\r\n"
@@ -61,81 +26,195 @@ respond() {
     printf "%s" "$1"
 }
 
-add_dhcp_leases() {
+# --- ATOMIC LOCK ---
+if [ -d "$LOCK" ]; then
+    AGE=$(( $(date +%s) - $(stat -c %Y "$LOCK" 2>/dev/null || echo 0) ))
+    if [ "$AGE" -gt 30 ]; then
+        echo "[Bandix-Page] REMOVE STALE LOCK" >> "$LOG"
+        rm -rf "$LOCK"
+    fi
+fi
 
-    CACHE="$TMP_BASE/bandix.cache"
+if ! mkdir "$LOCK" 2>/dev/null; then
+    echo "[Bandix-Page] LOCKED" >> "$LOG"
+    respond '{"status":"error","message":"locked"}'
+    exit 0
+fi
 
-    # --- NETWORK ---
-    NETWORK=$(grep '^META|network|' "$CACHE" | cut -d'|' -f3)
+cleanup() {
+    rm -rf "$LOCK"
+    rm -f "$POST_FILE" "$TMP_FILE" "$PAID_CLEAN_TMP" "$TMP_UCI"
+}
+trap cleanup EXIT INT TERM
+
+# --- WEB SYMLINKS ---
+ensure_symlink() {
+    TARGET="$1"
+    LINK="$2"
+
+    [ "$(readlink "$LINK" 2>/dev/null)" = "$TARGET" ] && return
+    ln -sf "$TARGET" "$LINK"
+}
+
+ensure_symlink "$TMP_BASE/devices.txt" "/www/devices.txt"
+
+# --- LOAD PASSWORD ---
+if [ ! -f "$PAY_FILE" ]; then
+    respond '{"status":"error","message":"password_file_missing"}'
+    exit 1
+fi
+
+PASSWORD=$(jq -r '.password // empty' "$PAY_FILE" 2>/dev/null)
+
+[ -n "$PASSWORD" ] || {
+    respond '{"status":"error","message":"password_not_set"}'
+    exit 1
+}
+
+clean_paid_users() {
+    [ -f "$PAID_FILE" ] || return 0
+    [ -f "$DATA_FILE" ] || return 0
+
+    jq -n \
+      --slurpfile users "$DATA_FILE" \
+      --slurpfile paid "$PAID_FILE" '
+        ($users[0] // {}) as $users |
+        ($paid[0].paid // {}) as $paid |
+        {
+          paid: reduce ($paid | keys_unsorted[]) as $u ({};
+            if (($users | has($u)) and ($u | startswith("_") | not)) then
+              . + {($u): true}
+            else
+              .
+            end
+          )
+        }
+      ' > "$PAID_CLEAN_TMP" 2>/dev/null || return 0
+
+    if ! cmp -s "$PAID_CLEAN_TMP" "$PAID_FILE" 2>/dev/null; then
+        cp "$PAID_CLEAN_TMP" "$PAID_FILE"
+    fi
+}
+
+read_post_data() {
+    case "$CONTENT_LENGTH" in
+        ""|*[!0-9]*)
+            cat
+            ;;
+        0)
+            return 0
+            ;;
+        *)
+            dd bs="$CONTENT_LENGTH" count=1 2>/dev/null
+            ;;
+    esac
+}
+
+get_cache_meta() {
+    awk -F'|' -v key="$1" '$1 == "META" && $2 == key { print $3; exit }' "$CACHE"
+}
+
+get_network_from_cache() {
+    NETWORK=$(get_cache_meta network)
     [ -z "$NETWORK" ] && NETWORK="192.168.2"
 
     case "$NETWORK" in
         [0-9]*.[0-9]*.[0-9]*) ;;
         *) NETWORK="192.168.2" ;;
     esac
+}
 
-    # --- REMOVE OLD BANDIX HOSTS ---
-    INDEX=0
-    while true; do
-        TAG=$(uci get dhcp.@host[$INDEX].tag 2>/dev/null)
+build_cache() {
+    jq -r '
+        def val($k): (.[$k] // "");
+        "META|network|\(val("_network"))",
+        "META|refresh|\(val("_refresh"))",
+        "META|multiplier|\(val("_multiplier"))",
+        "META|admin|\(val("_no_block"))",
+        "META|zone|\(val("_zone"))",
+        (
+            to_entries[]
+            | (.key | tostring) as $user
+            | select($user | test("^[A-Za-z0-9_-]+$"))
+            | select(($user | startswith("_")) | not)
+            | select(($user | test("^[0-9]+$")) | not)
+            | .value as $value
+            | (if ($value | type) == "object" then $value else {} end) as $obj
+            | ($obj.quota // 0) as $quota
+            | (($obj.macs // []) as $macs | if ($macs | type) == "array" then $macs[] else empty end)
+            | select(type == "string")
+            | select(test("^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$"))
+            | "\($user)|\(.)|\($quota)"
+        )
+    ' "$DATA_FILE" > "$CACHE"
+}
 
-        [ -z "$TAG" ] && break
+build_cache
 
-        if [ "$TAG" = "bandix" ]; then
-            uci delete dhcp.@host[$INDEX]
-            continue
-        fi
+add_dhcp_leases() {
+    get_network_from_cache
 
-        INDEX=$((INDEX + 1))
-    done
+    uci show dhcp 2>/dev/null | awk -F'[.=]' '
+        $3 == "tag" {
+            value=$0
+            sub(/^[^=]*=/, "", value)
+            gsub(/\047/, "", value)
+            if (value == "bandix") {
+                idx=$2
+                gsub(/@host\[|\]/, "", idx)
+                print idx
+            }
+        }
+    ' | sort -rn | awk '
+        $1 != "" { print "delete dhcp.@host[" $1 "]" }
+    ' > "$TMP_UCI"
 
-    # --- BUILD NEW CONFIG (BATCH) ---
-    TMP_UCI="$TMP_BASE/bandix.uci"
-    : > "$TMP_UCI"
-
-    USER_INDEX=0
-    CURRENT_USER=""
-    MAC_INDEX=0
-
-    while IFS='|' read -r USER MAC QUOTA; do
-
-        [ "$USER" = "META" ] && continue
-
-        if [ "$USER" != "$CURRENT_USER" ]; then
-            CURRENT_USER="$USER"
-            MAC_INDEX=0
-            BASE=$((20 + USER_INDEX * 10))
-            USER_INDEX=$((USER_INDEX + 1))
-        fi
-
-        MAC_UP=$(echo "$MAC" | tr '[:lower:]' '[:upper:]')
-
-        IP="$NETWORK.$((BASE + MAC_INDEX))"
-        NAME="${USER}-$((MAC_INDEX + 1))"
-
+    awk -F'|' -v network="$NETWORK" '
+        $1 == "META" { next }
         {
-            echo "add dhcp host"
-            echo "set dhcp.@host[-1].name=$NAME"
-            echo "set dhcp.@host[-1].mac=$MAC_UP"
-            echo "set dhcp.@host[-1].ip=$IP"
-            echo "set dhcp.@host[-1].leasetime=infinite"
-            echo "set dhcp.@host[-1].tag=bandix"
-        } >> "$TMP_UCI"
+            user=$1
+            mac=toupper($2)
 
-        MAC_INDEX=$((MAC_INDEX + 1))
+            if (user != current_user) {
+                current_user=user
+                mac_index=0
+                base=20 + user_index * 10
+                user_index++
+            }
 
-    done < "$CACHE"
+            last=base + mac_index
 
-    # --- APPLY IN ONE GO ---
-    if ! uci batch < "$TMP_UCI" >/dev/null 2>&1; then
-        echo "[Bandix] uci batch failed" >> "$LOG"
-    fi
+            if (last < 20 || last > 254) {
+                mac_index++
+                next
+            }
+
+            ip=network "." last
+            name=user "-" (mac_index + 1)
+
+            print "add dhcp host"
+            print "set dhcp.@host[-1].name=" name
+            print "set dhcp.@host[-1].mac=" mac
+            print "set dhcp.@host[-1].ip=" ip
+            print "set dhcp.@host[-1].leasetime=infinite"
+            print "set dhcp.@host[-1].tag=bandix"
+
+            mac_index++
+        }
+    ' "$CACHE" >> "$TMP_UCI"
+
+    # Split delete and add into separate batches to avoid index shifting aborts
+    grep '^delete' "$TMP_UCI" | uci batch >/dev/null 2>&1
+    grep -v '^delete' "$TMP_UCI" | uci batch >/dev/null 2>&1 || {
+        echo "[Bandix-Page] uci batch add failed" >> "$LOG"
+        return 1
+    }
 
     if ! uci commit dhcp >/dev/null 2>&1; then
-        echo "[Bandix] uci commit failed" >> "$LOG"
+        echo "[Bandix-Page] uci commit failed" >> "$LOG"
+        return 1
     fi
 
-    # --- CLEANUP NETWORK STATE ---
     : > /tmp/dhcp.leases 2>/dev/null
     ip neigh flush all >/dev/null 2>&1
 
@@ -148,163 +227,167 @@ add_dhcp_leases() {
 }
 
 generate_dhcp_fp() {
+    awk -F'|' '
+        function checked_network() {
+            if (!network_checked) {
+                if (network !~ /^[0-9]+\.[0-9]+\.[0-9]+$/)
+                    network="192.168.2"
+                network_checked=1
+            }
+            return network
+        }
 
-    CACHE="$TMP_BASE/bandix.cache"
+        $1 == "META" && $2 == "network" {
+            network=$3
+            next
+        }
 
-    NETWORK=$(grep '^META|network|' "$CACHE" | cut -d'|' -f3)
-    [ -z "$NETWORK" ] && NETWORK="192.168.2"
+        $1 == "META" {
+            next
+        }
 
-    case "$NETWORK" in
-        [0-9]*.[0-9]*.[0-9]*) ;;
-        *) NETWORK="192.168.2" ;;
-    esac
+        {
+            user=$1
+            mac=toupper($2)
 
-    USER_INDEX=0
-    CURRENT_USER=""
-    MAC_INDEX=0
+            if (user != current_user) {
+                current_user=user
+                mac_index=0
+                base=20 + user_index * 10
+                user_index++
+            }
 
-    while IFS='|' read -r USER MAC QUOTA; do
+            last=base + mac_index
 
-        # skip META lines
-        [ "$USER" = "META" ] && continue
+            if (last < 20 || last > 254) {
+                mac_index++
+                next
+            }
 
-        # new user → reset MAC index
-        if [ "$USER" != "$CURRENT_USER" ]; then
-            CURRENT_USER="$USER"
-            MAC_INDEX=0
-            BASE=$((20 + USER_INDEX * 10))
-            USER_INDEX=$((USER_INDEX + 1))
-        fi
-
-        MAC_UP=$(echo "$MAC" | tr '[:lower:]' '[:upper:]')
-        IP="$NETWORK.$((BASE + MAC_INDEX))"
-        NAME="${USER}-$((MAC_INDEX + 1))"
-
-        echo "$NAME|$MAC_UP|$IP"
-
-        MAC_INDEX=$((MAC_INDEX + 1))
-
-    done < "$CACHE" | sort | md5sum | cut -d' ' -f1
+            printf "%s-%d|%s|%s.%d\n", user, mac_index + 1, mac, checked_network(), last
+            mac_index++
+        }
+    ' "$CACHE" | sort | md5sum | cut -d' ' -f1
 }
 
 generate_quota_fp() {
+    awk -F'|' '
+        $1 == "META" {
+            meta[$2]=$3
+            next
+        }
 
-    CACHE="$TMP_BASE/bandix.cache"
+        {
+            quota=$3
+            if (quota == "")
+                quota=0
+            print $1 "|" toupper($2) "|" quota
+        }
 
-    MULTIPLIER=$(grep '^META|multiplier|' "$CACHE" | cut -d'|' -f3)
-    [ -z "$MULTIPLIER" ] && MULTIPLIER=1
+        END {
+            multiplier=meta["multiplier"]
+            if (multiplier == "")
+                multiplier=1
 
-    ADMIN=$(grep '^META|admin|' "$CACHE" | cut -d'|' -f3)
-    ZONE=$(grep '^META|zone|' "$CACHE" | cut -d'|' -f3)
-
-    {
-        echo "MULTIPLIER=$MULTIPLIER"
-        echo "ADMIN=$ADMIN"
-        echo "ZONE=$ZONE"
-
-        while IFS='|' read -r USER MAC QUOTA; do
-
-            # skip META lines
-            [ "$USER" = "META" ] && continue
-
-            MAC_UP=$(echo "$MAC" | tr '[:lower:]' '[:upper:]')
-            [ -z "$QUOTA" ] && QUOTA=0
-
-            echo "$USER|$MAC_UP|$QUOTA"
-
-        done < "$CACHE"
-
-    } | sort | md5sum | cut -d' ' -f1
+            print "MULTIPLIER=" multiplier
+            print "ADMIN=" meta["admin"]
+            print "ZONE=" meta["zone"]
+        }
+    ' "$CACHE" | sort | md5sum | cut -d' ' -f1
 }
 
 update_cron() {
-
-    CACHE="$TMP_BASE/bandix.cache"
-
-    REFRESH=$(grep '^META|refresh|' "$CACHE" | cut -d'|' -f3)
+    REFRESH=$(get_cache_meta refresh)
 
     [ -z "$REFRESH" ] && REFRESH=2
+    echo "$REFRESH" | grep -Eq '^[0-9]+$' || REFRESH=2
     [ "$REFRESH" -lt 1 ] && REFRESH=1
     [ "$REFRESH" -gt 60 ] && REFRESH=60
 
     CRON_FILE="/etc/crontabs/root"
+    TMP_CRON="$TMP_BASE/root.cron.tmp"
 
-    # 🔥 REMOVE ALL existing bandix-quota entries
-    grep -v 'bandix-quota' "$CRON_FILE" > "$CRON_FILE.tmp"
-    mv "$CRON_FILE.tmp" "$CRON_FILE"
+    if [ -f "$CRON_FILE" ]; then
+        grep -v 'bandix-quota' "$CRON_FILE" > "$TMP_CRON"
+    else
+        : > "$TMP_CRON"
+    fi
 
-    # 🔥 ADD SINGLE clean entry
-    echo "*/$REFRESH * * * * /usr/bin/bandix-quota" >> "$CRON_FILE"
+    echo "*/$REFRESH * * * * /usr/bin/bandix-quota" >> "$TMP_CRON"
 
-    # reload cron
+    if cmp -s "$TMP_CRON" "$CRON_FILE" 2>/dev/null; then
+        rm -f "$TMP_CRON"
+        echo "[Bandix-Page] cron already correct" >> "$LOG"
+        return 0
+    fi
+
+    cp "$TMP_CRON" "$CRON_FILE"
+    rm -f "$TMP_CRON"
+
     /etc/init.d/cron restart
 }
 
-build_cache() {
+generate_actual_dhcp_fp() {
+    uci show dhcp 2>/dev/null | awk -F'[.=]' '
+        /^dhcp\.@host\[[0-9]+\]\./ {
+            section=$2
+            prop=$3
+            value=$0
+            sub(/^[^=]*=/, "", value)
+            gsub(/\047/, "", value)
 
-    CACHE="$TMP_BASE/bandix.cache"
-    : > "$CACHE"
+            data[section,prop]=value
+            sections[section]=1
+        }
 
-    # --- META ---
-    NETWORK=$(jsonfilter -i "$DATA_FILE" -e '@._network' 2>/dev/null)
-    REFRESH=$(jsonfilter -i "$DATA_FILE" -e '@._refresh' 2>/dev/null)
-    MULTIPLIER=$(jsonfilter -i "$DATA_FILE" -e '@._multiplier' 2>/dev/null)
-    ADMIN=$(jsonfilter -i "$DATA_FILE" -e '@._admin' 2>/dev/null)
-    ZONE=$(jsonfilter -i "$DATA_FILE" -e '@._zone' 2>/dev/null)
-
-    echo "META|network|$NETWORK" >> "$CACHE"
-    echo "META|refresh|$REFRESH" >> "$CACHE"
-    echo "META|multiplier|$MULTIPLIER" >> "$CACHE"
-    echo "META|admin|$ADMIN" >> "$CACHE"
-    echo "META|zone|$ZONE" >> "$CACHE"
-
-    # --- USERS ---
-    USERS=$(jsonfilter -i "$DATA_FILE" -e '@' | \
-        tr '{},' '\n' | grep ':' | cut -d':' -f1 | tr -d '" ')
-
-    for USER in $USERS; do
-
-        # skip system keys
-        echo "$USER" | grep -q "^_" && continue
-        echo "$USER" | grep -Eq '^[0-9]+$' && continue
-
-        # quota
-        QUOTA=$(jsonfilter -i "$DATA_FILE" -e "@.$USER.quota" 2>/dev/null)
-        [ -z "$QUOTA" ] && QUOTA=0
-
-        INDEX=0
-        while true; do
-            MAC=$(jsonfilter -i "$DATA_FILE" -e "@.$USER.macs[$INDEX]" 2>/dev/null)
-            [ -z "$MAC" ] && break
-
-            echo "$USER|$MAC|$QUOTA" >> "$CACHE"
-
-            INDEX=$((INDEX + 1))
-        done
-    done
+        END {
+            for (section in sections) {
+                if (data[section,"tag"] == "bandix" &&
+                    data[section,"name"] != "" &&
+                    data[section,"mac"] != "" &&
+                    data[section,"ip"] != "") {
+                    print data[section,"name"] "|" toupper(data[section,"mac"]) "|" data[section,"ip"]
+                }
+            }
+        }
+    ' | sort | md5sum | cut -d' ' -f1
 }
+
 # -------------------------
 
-read_post_data
+read_post_data > "$POST_FILE"
 
-# 🧹 CLEANUP ACTION (before normal validation flow)
-ACTION=$(echo "$POST_DATA" | jsonfilter -e '@.action')
+[ -s "$POST_FILE" ] || {
+    respond '{"status":"error","message":"empty"}'
+    exit 1
+}
+
+SIZE=$(wc -c < "$POST_FILE" | tr -d ' ')
+[ "$SIZE" -le "$MAX_SIZE" ] || {
+    respond '{"status":"error","message":"too_large"}'
+    exit 1
+}
+
+jq -e . "$POST_FILE" >/dev/null 2>&1 || {
+    respond '{"status":"error","message":"invalid_json"}'
+    exit 1
+}
+
+ACTION=$(jq -r '.action // empty' "$POST_FILE" 2>/dev/null)
+PASS=$(jq -r '.password // empty' "$POST_FILE" 2>/dev/null)
 
 if [ "$ACTION" = "cleanup" ]; then
-
-    PASS=$(echo "$POST_DATA" | jsonfilter -e '@.password')
-
     [ "$PASS" = "$PASSWORD" ] || {
         respond '{"status":"error","message":"unauthorized"}'
         exit 1
     }
 
-    echo "[Bandix] CLEANUP TRIGGERED" >> "$LOG"
+    echo "[Bandix-Page] CLEANUP TRIGGERED" >> "$LOG"
 
     rm -rf /usr/share/bandix/* 2>> "$LOG"
 
     /etc/init.d/bandix restart >> "$LOG" 2>&1 || {
-        echo "[Bandix] restart failed" >> "$LOG"
+        echo "[Bandix-Page] restart failed" >> "$LOG"
         respond '{"status":"error","message":"restart_failed"}'
         exit 1
     }
@@ -313,48 +396,42 @@ if [ "$ACTION" = "cleanup" ]; then
     exit 0
 fi
 
-[ -n "$POST_DATA" ] || {
-    respond '{"status":"error","message":"empty"}'
-    exit 1
-}
-
-SIZE=$(printf "%s" "$POST_DATA" | wc -c)
-[ "$SIZE" -le "$MAX_SIZE" ] || {
-    respond '{"status":"error","message":"too_large"}'
-    exit 1
-}
-
-PASS=$(echo "$POST_DATA" | jsonfilter -e '@.password')
-
 [ "$PASS" = "$PASSWORD" ] || {
     respond '{"status":"error","message":"unauthorized"}'
     exit 1
 }
 
-DATA=$(echo "$POST_DATA" | jsonfilter -e '@.data')
+if ! jq -c 'if (.data | type) == "object" then .data else empty end' "$POST_FILE" > "$TMP_FILE" 2>/dev/null; then
+    respond '{"status":"error","message":"invalid_json"}'
+    exit 1
+fi
 
-[ -n "$DATA" ] || {
+[ -s "$TMP_FILE" ] || {
     respond '{"status":"error","message":"no_data"}'
     exit 1
 }
 
-echo "$DATA" | jsonfilter -e '@' >/dev/null 2>&1 || {
+jq -e . "$TMP_FILE" >/dev/null 2>&1 || {
     respond '{"status":"error","message":"invalid_json"}'
     exit 1
 }
 
 mkdir -p /www/data
 
-echo "$DATA" > "$TMP_FILE" || exit 1
-cp "$TMP_FILE" "$DATA_FILE" || exit 1
-rm -f "$TMP_FILE"
+if ! cmp -s "$TMP_FILE" "$DATA_FILE" 2>/dev/null; then
+    cp "$TMP_FILE" "$DATA_FILE" || exit 1
+    echo "[Bandix-Page] users.json changed" >> "$LOG"
+else
+    echo "[Bandix-Page] users.json unchanged" >> "$LOG"
+fi
+
+clean_paid_users
 
 build_cache
-cat "$TMP_BASE/bandix.cache" >> "$LOG"
-
+cat "$CACHE" >> "$LOG"
 
 [ -s "$DATA_FILE" ] || {
-    echo "[Bandix] ERROR: users.json empty" >> "$LOG"
+    echo "[Bandix-Page] ERROR: users.json empty" >> "$LOG"
     exit 1
 }
 
@@ -367,59 +444,47 @@ OLD_QUOTA_FP="$(cat "$QUOTA_FP_FILE" 2>/dev/null)"
 
 NEW_DHCP_FP="$(generate_dhcp_fp)"
 OLD_DHCP_FP="$(cat "$DHCP_FP_FILE" 2>/dev/null)"
+ACTUAL_DHCP_FP="$(generate_actual_dhcp_fp)"
 
-NEW_REFRESH=$(grep '^META|refresh|' "$TMP_BASE/bandix.cache" | cut -d'|' -f3)
+NEW_REFRESH=$(get_cache_meta refresh)
 echo "$NEW_REFRESH" | grep -Eq '^[0-9]+$' || NEW_REFRESH=2
 OLD_REFRESH="$(cat "$REFRESH_FP_FILE" 2>/dev/null)"
 
-echo "[Bandix] DHCP_FP=$NEW_DHCP_FP" >> "$LOG"
-
-
 # ---- DHCP changes ----
-if [ "$NEW_DHCP_FP" != "$OLD_DHCP_FP" ]; then
-
-    echo "[Bandix] DHCP changed -> rebuilding" >> "$LOG"
+if [ "$NEW_DHCP_FP" != "$OLD_DHCP_FP" ] || [ "$NEW_DHCP_FP" != "$ACTUAL_DHCP_FP" ]; then
+    echo "[Bandix-Page] DHCP changed/missing -> rebuilding" >> "$LOG"
+    echo "[Bandix-Page] DHCP desired=$NEW_DHCP_FP saved=$OLD_DHCP_FP actual=$ACTUAL_DHCP_FP" >> "$LOG"
 
     if add_dhcp_leases; then
         echo "$NEW_DHCP_FP" > "$DHCP_FP_FILE"
-
-        # ✅ RUN ONLY WHEN CHANGED (same logic)
         /usr/bin/generate-hosts.sh >> "$LOG" 2>&1 || true
-
     else
-        echo "[Bandix] DHCP rebuild failed" >> "$LOG"
+        echo "[Bandix-Page] DHCP rebuild failed" >> "$LOG"
         respond '{"status":"error","message":"dhcp_failed"}'
-        exit 0
+        exit 1
     fi
-
 else
-    echo "[Bandix] DHCP unchanged" >> "$LOG"
+    echo "[Bandix-Page] DHCP unchanged" >> "$LOG"
 fi
-
 
 # ---- REFRESH changes ----
 if [ "$NEW_REFRESH" != "$OLD_REFRESH" ]; then
-
-    echo "[Bandix] REFRESH changed -> updating cron" >> "$LOG"
+    echo "[Bandix-Page] REFRESH changed -> updating cron" >> "$LOG"
 
     update_cron
     echo "$NEW_REFRESH" > "$REFRESH_FP_FILE"
-
 else
-    echo "[Bandix] REFRESH unchanged" >> "$LOG"
+    echo "[Bandix-Page] REFRESH unchanged" >> "$LOG"
 fi
 
 # ---- QUOTA changes ----
 if [ "$NEW_QUOTA_FP" != "$OLD_QUOTA_FP" ]; then
-
-    echo "[Bandix] QUOTA changed -> applying" >> "$LOG"
+    echo "[Bandix-Page] QUOTA changed -> applying" >> "$LOG"
 
     /usr/bin/bandix-quota force >> "$LOG" 2>&1 || true
-
     echo "$NEW_QUOTA_FP" > "$QUOTA_FP_FILE"
-
 else
-    echo "[Bandix] QUOTA unchanged" >> "$LOG"
+    echo "[Bandix-Page] QUOTA unchanged" >> "$LOG"
 fi
 
 respond '{"status":"ok"}'
