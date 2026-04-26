@@ -14,7 +14,7 @@ echo "[Bandix-Page] Removing..."
 
 rm -f /www/data/users.json
 rm -f /www/data/users-pay.json
-rm -f /www/data/bandix-public.json
+rm -f /usr/share/bandix-page.json
 
 echo "[Bandix-Page] Data files removed"
 
