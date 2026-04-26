@@ -29,6 +29,7 @@ package() {
     mkdir -p "$pkgdir/www/cgi-bin"
     mkdir -p "$pkgdir/www/data"
     mkdir -p "$pkgdir/usr/bin"
+    mkdir -p "$pkgdir/usr/share"
 
     cp -r ./www/* "$pkgdir/www/"
     cp -r ./usr/bin/* "$pkgdir/usr/bin/"
