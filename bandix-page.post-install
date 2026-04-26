@@ -4,20 +4,32 @@ echo "[Bandix-Page] Setup..."
 
 # Ensure directories exist
 mkdir -p /www/data
+mkdir -p /usr/share
+mkdir -p /tmp/bandixpage
 
-# Create default JSON files (if missing)
+# Create required data files (if missing)
 [ -f /www/data/users.json ] || echo '{}' > /www/data/users.json
-[ -f /www/data/bandix-public.json ] || echo '{}' > /www/data/bandix-public.json
+
 if [ ! -f /www/data/users-pay.json ]; then
-    echo '{"password":"password","paid":{}}' > /www/data/users-pay.json
+    echo '{"paid":{}}' > /www/data/users-pay.json
 fi
 
+if [ ! -f /usr/share/bandix-page.json ]; then
+    echo '{"password":"password"}' > /usr/share/bandix-page.json
+fi
+
+# Create symlinks (force overwrite if needed)
+ln -sf /tmp/bandixpage/bandix-buffer.json /www/data/bandix-buffer.json
+ln -sf /tmp/bandixpage/bandixquota.log /www/data/bandixquota.log
+ln -sf /tmp/bandixpage/devices.txt /www/devices.txt
+
 # Fix permissions
-chmod 664 /www/data/*.json 2>/dev/null
+chmod 664 /www/data/users.json 2>/dev/null
+chmod 664 /www/data/users-pay.json 2>/dev/null
+chmod 664 /usr/share/bandix-page.json 2>/dev/null
 
 # Ensure scripts are executable
 [ -d /www/cgi-bin ] && chmod +x /www/cgi-bin/* 2>/dev/null
-[ -f /usr/bin/bandix-flush ] && chmod +x /usr/bin/bandix-flush
 [ -f /usr/bin/bandix-quota ] && chmod +x /usr/bin/bandix-quota
 
 # data permissions
