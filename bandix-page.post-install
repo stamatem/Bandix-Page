@@ -24,6 +24,12 @@ chmod 664 /www/data/*.json 2>/dev/null
 chown -R root:nogroup /www/data
 chmod -R 775 /www/data
 
+# ---- Default cron (only if missing) ----
+if ! grep -q 'bandix-quota' /etc/crontabs/root 2>/dev/null; then
+    echo "*/2 * * * * /usr/bin/bandix-quota" >> /etc/crontabs/root
+    /etc/init.d/cron restart
+fi
+
 echo "[Bandix-Page] Ready"
 
 exit 0
