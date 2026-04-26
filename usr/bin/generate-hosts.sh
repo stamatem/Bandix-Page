@@ -5,6 +5,17 @@ mkdir -p "$TMP_BASE"
 
 OUT="$TMP_BASE/devices.txt"
 TMP="$TMP_BASE/devices.new"
+LOCK="$TMP_BASE/generate-hosts.lock"
+
+if ! mkdir "$LOCK" 2>/dev/null; then
+    exit 0
+fi
+
+cleanup() {
+    rm -rf "$LOCK"
+    rm -f "$TMP"
+}
+trap cleanup EXIT INT TERM
 
 awk '
 function flush() {
@@ -49,14 +60,20 @@ END {
 }
 ' /etc/config/dhcp > "$TMP"
 
+CHANGED=0
+
 if cmp -s "$TMP" "$OUT"; then
     rm -f "$TMP"
 else
     mv "$TMP" "$OUT"
+    CHANGED=1
     logger "Bandix-Page Host Registry Updated (RAM)"
 fi
 
-# ✅ ALWAYS notify APs
+[ "$CHANGED" = "1" ] || exit 0
+
 for ap in 192.168.2.2 192.168.2.3; do
-    wget -qO- http://$ap/cgi-bin/pull-hosts.sh >/dev/null 2>&1 &
+    wget -qO- "http://$ap/cgi-bin/pull-hosts.sh" >/dev/null 2>&1 &
 done
+
+exit 0
