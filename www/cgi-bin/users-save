@@ -116,11 +116,11 @@ get_cache_meta() {
 
 get_network_from_cache() {
     NETWORK=$(get_cache_meta network)
-    [ -z "$NETWORK" ] && NETWORK="192.168.2"
+    [ -z "$NETWORK" ] && NETWORK="192.168.1"
 
     case "$NETWORK" in
         [0-9]*.[0-9]*.[0-9]*) ;;
-        *) NETWORK="192.168.2" ;;
+        *) NETWORK="192.168.1" ;;
     esac
 }
 
@@ -231,7 +231,7 @@ generate_dhcp_fp() {
         function checked_network() {
             if (!network_checked) {
                 if (network !~ /^[0-9]+\.[0-9]+\.[0-9]+$/)
-                    network="192.168.2"
+                    network="192.168.1"
                 network_checked=1
             }
             return network
@@ -453,7 +453,6 @@ OLD_REFRESH="$(cat "$REFRESH_FP_FILE" 2>/dev/null)"
 # ---- DHCP changes ----
 if [ "$NEW_DHCP_FP" != "$OLD_DHCP_FP" ] || [ "$NEW_DHCP_FP" != "$ACTUAL_DHCP_FP" ]; then
     echo "[Bandix-Page] DHCP changed/missing -> rebuilding" >> "$LOG"
-    echo "[Bandix-Page] DHCP desired=$NEW_DHCP_FP saved=$OLD_DHCP_FP actual=$ACTUAL_DHCP_FP" >> "$LOG"
 
     if add_dhcp_leases; then
         echo "$NEW_DHCP_FP" > "$DHCP_FP_FILE"
