@@ -32,10 +32,6 @@ chmod 664 /www/data/users.json 2>/dev/null
 chmod 664 /www/data/users-pay.json 2>/dev/null
 chmod 664 /usr/share/bandix-page.json 2>/dev/null
 
-# data permissions
-chown -R root:nogroup /www/data
-chmod -R 775 /www/data
-
 # generate devices file if script exists
 if [ -x /usr/bin/generate-hosts.sh ]; then
     /usr/bin/generate-hosts.sh >/dev/null 2>&1
