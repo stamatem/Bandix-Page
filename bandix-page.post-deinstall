@@ -11,16 +11,25 @@ echo "[Bandix-Page] Removing..."
 /etc/init.d/cron restart 2>/dev/null
 
 # -------------------------
+# remove symlinks
+# -------------------------
+rm -f /www/data/bandix-buffer.json
+rm -f /www/data/bandixquota.log
+rm -f /www/devices.txt
+
+# -------------------------
 # delete bandix data files
 # -------------------------
 rm -f /www/data/users.json
 rm -f /www/data/users-pay.json
 rm -f /www/data/bandix-public.json
-rm -f /www/data/bandixquota.log
+rm -f /usr/share/bandix-page.json
 
+# -------------------------
+# remove temp directory
+# -------------------------
+[ -d /tmp/bandixpage ] && rm -rf /tmp/bandixpage
 
-echo "[Bandix-Page] Data files removed"
-
-echo "[Bandix-Page] Removed"
+echo "[Bandix-Page] Uninstalled"
 
 exit 0
