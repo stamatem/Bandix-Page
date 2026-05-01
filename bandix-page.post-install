@@ -16,6 +16,7 @@ fi
 
 if [ ! -f /usr/share/bandix-page.json ]; then
     echo '{"password":"password"}' > /usr/share/bandix-page.json
+fi
 
 # Create symlinks (force overwrite if needed)
 ln -sf /tmp/bandixpage/bandix-buffer.json /www/data/bandix-buffer.json
