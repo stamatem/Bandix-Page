@@ -995,7 +995,6 @@ async function load() {
       zoneSelect.innerHTML = '';
 
       (data.zones || []).forEach(z => {
-        if (z === "wan") return;
 
         const opt = document.createElement('option');
         opt.value = z;
