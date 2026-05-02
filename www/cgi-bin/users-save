@@ -199,7 +199,7 @@ add_dhcp_leases() {
 
             last=base + mac_index
 
-            if (last < 20 || last > 254) {
+            if (last < 10 || last > 254) {
                 mac_index++
                 next
             }
@@ -274,7 +274,7 @@ generate_dhcp_fp() {
 
             last=base + mac_index
 
-            if (last < 20 || last > 254) {
+            if (last < 10 || last > 254) {
                 mac_index++
                 next
             }
