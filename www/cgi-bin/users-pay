@@ -35,7 +35,8 @@ init_file() {
         OLD_PASS=$(jsonfilter -i "$DATA_FILE" -e '@.password' 2>/dev/null)
         [ -z "$OLD_PASS" ] && OLD_PASS="monitor84"
 
-        echo "{\"password\":\"$OLD_PASS\"}" > "$PASS_TMP"
+        jq -n --arg password "$OLD_PASS" '{password:$password}' > "$PASS_TMP" 2>/dev/null
+        chmod 600 "$PASS_TMP" 2>/dev/null
         mv "$PASS_TMP" "$PASS_FILE"
     fi
 
@@ -203,7 +204,12 @@ if [ "$ACTION" = "set_password" ]; then
         exit 1
     }
 
-    echo "{\"password\":\"$NEW\"}" > "$PASS_TMP"
+    jq -n --arg password "$NEW" '{password:$password}' > "$PASS_TMP" 2>/dev/null || {
+        respond '{"status":"error","message":"password_write_failed"}'
+        exit 1
+    }
+
+    chmod 600 "$PASS_TMP" 2>/dev/null
     mv "$PASS_TMP" "$PASS_FILE"
 
     respond '{"status":"ok"}'
