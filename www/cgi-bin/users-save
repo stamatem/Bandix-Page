@@ -57,6 +57,9 @@ ensure_symlink() {
 }
 
 ensure_symlink "$TMP_BASE/devices.txt" "/www/devices.txt"
+mkdir -p /www/data
+ensure_symlink "$TMP_BASE/bandix-buffer.json" "/www/data/bandix-buffer.json"
+ensure_symlink "$TMP_BASE/bandixquota.log" "/www/data/bandixquota.log"
 
 # --- LOAD PASSWORD ---
 if [ ! -f "$PAY_FILE" ]; then
@@ -135,21 +138,33 @@ build_cache() {
         (
             to_entries[]
             | (.key | tostring) as $user
-            | select($user | test("^[A-Za-z0-9_-]+$"))
+            | select($user != "")
             | select(($user | startswith("_")) | not)
-            | select(($user | test("^[0-9]+$")) | not)
+            | select(($user | index("|")) == null)
             | .value as $value
             | (if ($value | type) == "object" then $value else {} end) as $obj
             | ($obj.quota // 0) as $quota
-            | (($obj.macs // []) as $macs | if ($macs | type) == "array" then $macs[] else empty end)
+            | (
+                if (($obj.macs | type) == "array") and (($obj.macs | length) > 0) then
+                  $obj.macs[]
+                elif ($obj.macs | type) == "string" then
+                  $obj.macs
+                elif ($obj.mac | type) == "string" then
+                  $obj.mac
+                else
+                  empty
+                end
+              )
             | select(type == "string")
-            | select(test("^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$"))
-            | "\($user)|\(.)|\($quota)"
+            | ascii_upcase
+            | . as $mac
+            | ($mac | split(":")) as $parts
+            | select(($mac | length) == 17 and ($parts | length) == 6)
+            | select(([ $parts[] | select(length == 2) ] | length) == 6)
+            | "\($user)|\($mac)|\($quota)"
         )
     ' "$DATA_FILE" > "$CACHE"
 }
-
-build_cache
 
 add_dhcp_leases() {
     get_network_from_cache
@@ -292,6 +307,7 @@ generate_quota_fp() {
             print "MULTIPLIER=" multiplier
             print "ADMIN=" meta["admin"]
             print "ZONE=" meta["zone"]
+            print "NETWORK=" meta["network"]
         }
     ' "$CACHE" | sort | md5sum | cut -d' ' -f1
 }
@@ -427,7 +443,12 @@ fi
 
 clean_paid_users
 
-build_cache
+build_cache || {
+    echo "[Bandix-Page] build_cache failed" >> "$LOG"
+    respond '{"status":"error","message":"cache_failed"}'
+    exit 1
+}
+
 cat "$CACHE" >> "$LOG"
 
 [ -s "$DATA_FILE" ] || {
