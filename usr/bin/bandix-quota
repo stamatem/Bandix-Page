@@ -16,19 +16,7 @@ USER_STATS="$BASE/user_stats"
 RULE_CACHE="$BASE/firewall_rules"
 HASH_FILE="$BASE/state.hash"
 
-mkdir -p "$BASE" "$WWW"
-
-# --- WEB SYMLINKS ---
-ensure_symlink() {
-    TARGET="$1"
-    LINK="$2"
-
-    [ "$(readlink "$LINK" 2>/dev/null)" = "$TARGET" ] && return
-    ln -sf "$TARGET" "$LINK"
-}
-
-ensure_symlink "$BASE/bandix-buffer.json" "$DATA"
-ensure_symlink "$LOG" "$WWW/bandixquota.log"
+mkdir -p "$BASE"
 
 # --- LOCK ---
 if ! mkdir "$LOCK" 2>/dev/null; then exit 0; fi
@@ -48,14 +36,14 @@ eval "$(
         def shq: @sh;
         "MULT=" + ((._multiplier // 1) | tostring | shq),
         "ZONE=" + ((._zone // "lan") | tostring | shq),
-        "NETWORK=" + ((._network // "192.168.2") | tostring | shq),
+        "NETWORK=" + ((._network // "192.168.1") | tostring | shq),
         "NO_BLOCK=" + ((._no_block // "") | tostring | shq)
     ' "$USERS_FILE"
 )"
 
 case "$NETWORK" in
     [0-9]*.[0-9]*.[0-9]*) ;;
-    *) NETWORK="192.168.2" ;;
+    *) NETWORK="192.168.1" ;;
 esac
 ROUTER_IP="$NETWORK.1"
 
@@ -92,26 +80,55 @@ uci show dhcp 2>/dev/null | awk -F'[.=]' '
 ' > "$MAC_IP_MAP"
 
 # --- BUILD TRAFFIC MAP IN ONE JQ PASS ---
-jq -r '
-    .devices[]?
-    | [(.mac // "" | ascii_downcase), (((.wan_rx_bytes // 0) + (.wan_tx_bytes // 0)) | tostring)]
+TRAFFIC_RAW="$BASE/traffic.raw"
+
+if ! jq -r '
+    (.devices // [])[]
+    | [((.mac // "") | tostring | ascii_downcase), (((.wan_rx_bytes // 0) + (.wan_tx_bytes // 0)) | tostring)]
     | select(.[0] != "")
     | @tsv
-' "$DATA" | awk '
+' "$DATA" > "$TRAFFIC_RAW" 2>/dev/null; then
+    echo "[Bandix-Quota] traffic jq failed" >> "$LOG"
+    exit 1
+fi
+
+awk '
     { map[$1] += $2 }
     END { for (m in map) print m, map[m] }
-' > "$MAC_LOOKUP"
+' "$TRAFFIC_RAW" > "$MAC_LOOKUP"
 
 # --- COMPUTE USER STATS IN ONE AWK JOIN ---
-jq -r '
+USER_MACS_RAW="$BASE/user_macs.raw"
+
+if ! jq -r '
     to_entries[]
-    | select(.key | startswith("_") | not)
-    | .key as $user
-    | (.value.quota // 0) as $quota
-    | (.value.macs // [])[]
-    | [$user, (ascii_downcase), ($quota | tostring)]
+    | (.key | tostring) as $user
+    | select($user != "")
+    | select(($user | startswith("_")) | not)
+    | .value as $value
+    | (if ($value | type) == "object" then $value else {} end) as $obj
+    | ($obj.quota // 0) as $quota
+    | (
+        if (($obj.macs | type) == "array") and (($obj.macs | length) > 0) then
+          $obj.macs[]
+        elif ($obj.macs | type) == "string" then
+          $obj.macs
+        elif ($obj.mac | type) == "string" then
+          $obj.mac
+        else
+          empty
+        end
+      )
+    | select(type == "string")
+    | ascii_downcase
+    | [$user, ., ($quota | tostring)]
     | @tsv
-' "$USERS_FILE" | awk -v mult="$MULT" -v no_block="$NO_BLOCK" '
+' "$USERS_FILE" > "$USER_MACS_RAW" 2>/dev/null; then
+    echo "[Bandix-Quota] users jq failed" >> "$LOG"
+    exit 1
+fi
+
+awk -v mult="$MULT" -v no_block="$NO_BLOCK" '
     FILENAME == ARGV[1] {
         traffic[$1] = $2
         next
@@ -154,7 +171,7 @@ jq -r '
             printf " %s", m
         printf "\n"
     }
-' "$MAC_LOOKUP" - > "$USER_STATS"
+' "$MAC_LOOKUP" "$USER_MACS_RAW" > "$USER_STATS"
 
 HAS_USERS=0
 grep -q '^USER	' "$USER_STATS" && HAS_USERS=1
