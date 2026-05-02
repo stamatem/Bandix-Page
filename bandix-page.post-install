@@ -45,6 +45,12 @@ if [ -x /usr/bin/generate-hosts.sh ]; then
     /usr/bin/generate-hosts.sh >/dev/null 2>&1
 fi
 
+# Default quota cron
+if ! grep -q 'bandix-quota' /etc/crontabs/root 2>/dev/null; then
+    echo "*/2 * * * * /usr/bin/bandix-quota" >> /etc/crontabs/root
+    /etc/init.d/cron restart 2>/dev/null
+fi
+
 echo "[Bandix-Page] Ready"
 
 exit 0
