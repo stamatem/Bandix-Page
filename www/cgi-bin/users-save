@@ -193,7 +193,7 @@ add_dhcp_leases() {
             if (user != current_user) {
                 current_user=user
                 mac_index=0
-                base=20 + user_index * 10
+                base=10 + user_index * 5
                 user_index++
             }
 
@@ -268,7 +268,7 @@ generate_dhcp_fp() {
             if (user != current_user) {
                 current_user=user
                 mac_index=0
-                base=20 + user_index * 10
+                base=10 + user_index * 5
                 user_index++
             }
 
