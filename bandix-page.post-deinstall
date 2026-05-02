@@ -11,6 +11,66 @@ echo "[Bandix-Page] Removing..."
 /etc/init.d/cron restart 2>/dev/null
 
 # -------------------------
+# remove Bandix firewall rules
+# -------------------------
+FW_CHANGED=0
+
+for IDX in $(uci show firewall 2>/dev/null | awk -F'[.=]' '
+    /\.name=/ {
+        section=$2
+        name=$0
+        sub(/^[^=]*=/, "", name)
+        gsub(/\047/, "", name)
+
+        if (name == "bandix_page" ||
+            name == "bandix_block" ||
+            name == "bandix_allowed" ||
+            name == "bandix_unknown") {
+            idx=section
+            gsub(/@rule\[|\]/, "", idx)
+            print idx
+        }
+    }
+' | sort -rn); do
+    uci delete firewall.@rule[$IDX] 2>/dev/null && FW_CHANGED=1
+done
+
+if [ "$FW_CHANGED" = "1" ]; then
+    uci commit firewall 2>/dev/null
+    /etc/init.d/firewall reload >/dev/null 2>&1
+    echo "[Bandix-Page] Firewall rules removed"
+fi
+
+# -------------------------
+# remove Bandix DHCP hosts
+# -------------------------
+DHCP_CHANGED=0
+
+for IDX in $(uci show dhcp 2>/dev/null | awk -F'[.=]' '
+    $3 == "tag" {
+        section=$2
+        value=$0
+        sub(/^[^=]*=/, "", value)
+        gsub(/\047/, "", value)
+
+        if (value == "bandix") {
+            idx=section
+            gsub(/@host\[|\]/, "", idx)
+            print idx
+        }
+    }
+' | sort -rn); do
+    uci delete dhcp.@host[$IDX] 2>/dev/null && DHCP_CHANGED=1
+done
+
+if [ "$DHCP_CHANGED" = "1" ]; then
+    uci commit dhcp 2>/dev/null
+    ubus call service reload '{"name":"dnsmasq"}' >/dev/null 2>&1 \
+        || /etc/init.d/dnsmasq restart >/dev/null 2>&1
+    echo "[Bandix-Page] DHCP hosts removed"
+fi
+
+# -------------------------
 # remove symlinks
 # -------------------------
 rm -f /www/data/bandix-buffer.json
