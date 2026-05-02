@@ -15,6 +15,7 @@ MAC_IP_MAP="$BASE/mac_ip_map"
 USER_STATS="$BASE/user_stats"
 RULE_CACHE="$BASE/firewall_rules"
 HASH_FILE="$BASE/state.hash"
+PAGE_PORTS="22 80 443"
 
 mkdir -p "$BASE"
 
@@ -216,7 +217,7 @@ awk '
 ' "$USER_STATS" >> "$LOG"
 
 # --- FAST EXIT IF STATE UNCHANGED ---
-STATE_STRING="$(printf "%s|%s|%s|%s|%s" "$HAS_USERS" "$ZONE" "$ROUTER_IP" "$BLOCK_MACS" "$ALLOW_MACS" | tr -s ' ')"
+STATE_STRING="$(printf "%s|%s|%s|%s|%s|%s" "$HAS_USERS" "$ZONE" "$ROUTER_IP" "$PAGE_PORTS" "$BLOCK_MACS" "$ALLOW_MACS" | tr -s ' ')"
 
 NEW_HASH=$(printf "%s" "$STATE_STRING" | md5sum | awk '{print $1}')
 OLD_HASH=$(cat "$HASH_FILE" 2>/dev/null)
@@ -347,6 +348,11 @@ ensure_rule() {
 
             [ "$(uci -q get firewall.$SECTION.dest_ip 2>/dev/null)" != "$DEST" ] && {
                 uci set firewall.$SECTION.dest_ip="$DEST"
+                FW_CHANGED=1
+            }
+
+            [ "$(uci -q get firewall.$SECTION.dest_port 2>/dev/null)" != "$PAGE_PORTS" ] && {
+                uci set firewall.$SECTION.dest_port="$PAGE_PORTS"
                 FW_CHANGED=1
             }
         else
