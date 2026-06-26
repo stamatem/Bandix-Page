@@ -301,7 +301,7 @@ async function load() {
       payData = await payRes.json();
     } catch(e) {}
 
-    const dataRes = await fetch('/data/traffic-buffer.json?t=' + Date.now());
+    const dataRes = await fetch('/data/traffic-totals.json?t=' + Date.now());
     if (!dataRes.ok) throw new Error("HTTP " + dataRes.status);
 
     const text = await dataRes.text();
@@ -314,7 +314,7 @@ async function load() {
     let json;
     try {
       json = JSON.parse(text);
-      updateStatus(json.ts_ms || 0);
+      updateStatus(json.ts_ms || (json.ts_s ? json.ts_s * 1000 : 0));
     } catch (e) {
       console.error("BAD JSON:", text);
       document.getElementById('list').innerText = 'Invalid data';
@@ -334,9 +334,8 @@ async function load() {
     let devices = Array.isArray(json.devices) ? json.devices : [];
 
     devices = devices.filter(d =>
-      d.ip &&
-      !d.ip.endsWith(".1") &&
-      d.mac
+      d.mac &&
+      (!d.ip || !d.ip.endsWith(".1"))
     );
 
     let grouped = {};
@@ -351,8 +350,10 @@ async function load() {
       if (!grouped[mac]) grouped[mac] = 0;
       grouped[mac] += rx + tx;
 
-      if (!lastSeen[mac] || d.last_online_ts > lastSeen[mac]) {
-        lastSeen[mac] = d.last_online_ts;
+      const seen = Number(d.last_online_ts || (d.updated ? d.updated * 1000 : 0));
+
+      if (seen && (!lastSeen[mac] || seen > lastSeen[mac])) {
+        lastSeen[mac] = seen;
       }
     });
 
@@ -401,7 +402,7 @@ async function load() {
       const user = entry.name;
 
       const now = Date.now();
-      const isOnline = entry.lastSeen && (now - entry.lastSeen <= 45000);
+      const isOnline = entry.lastSeen && (now - entry.lastSeen <= 300000);
       const dotClass = isOnline ? 'status-dot-green' : 'status-dot-red';
       const statusText = isOnline ? 'Online' : 'Offline';
 
