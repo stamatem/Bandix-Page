@@ -55,6 +55,10 @@ function flush() {
     gsub("'"'"'", "", tag)
 }
 
+/list tag/ {
+    tag=$3
+    gsub("'"'"'", "", tag)
+}
 END {
     flush()
 }
