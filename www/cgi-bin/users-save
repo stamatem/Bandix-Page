@@ -361,11 +361,12 @@ update_accumulator_interval() {
     [ "$REFRESH" -lt 1 ] && REFRESH=1
     [ "$REFRESH" -gt 60 ] && REFRESH=60
 
-    if [ -x /etc/init.d/traffic-accumulator ]; then
-        /etc/init.d/traffic-accumulator restart >> "$LOG" 2>&1 || true
-        echo "[Traffic-Page] traffic-accumulator restarted interval=${REFRESH}m" >> "$LOG"
+    if [ -x /etc/init.d/traffic-page ]; then
+	sleep 2
+        /etc/init.d/traffic-page restart >> "$LOG" 2>&1 || true
+        echo "[Traffic-Page] traffic-page restarted interval=${REFRESH}m" >> "$LOG"
     else
-        echo "[Traffic-Page] traffic-accumulator service missing" >> "$LOG"
+        echo "[Traffic-Page] traffic-page service missing" >> "$LOG"
     fi
 }
 
