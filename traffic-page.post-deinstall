@@ -5,9 +5,9 @@ echo "[Traffic-Page] Removing..."
 # -------------------------
 # stop and remove accumulator service
 # -------------------------
-if [ -x /etc/init.d/traffic-accumulator ]; then
-    /etc/init.d/traffic-accumulator stop >/dev/null 2>&1
-    /etc/init.d/traffic-accumulator disable >/dev/null 2>&1
+if [ -x /etc/init.d/traffic-page ]; then
+    /etc/init.d/traffic-page stop >/dev/null 2>&1
+    /etc/init.d/traffic-page disable >/dev/null 2>&1
 fi
 
 TRAFFIC_IFACE="TRAFFIC_PAGE"
