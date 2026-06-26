@@ -8,7 +8,7 @@ mkdir -p /usr/share
 mkdir -p /tmp/trafficpage
 
 # Create required data files (if missing)
-[ -f /www/data/users.json ] || echo '{"_zone":"TRAFFIC_PAGE","_network":"10.99.100","_refresh":2,"_multiplier":1}' > /www/data/users.json
+[ -f /www/data/users.json ] || echo '{"_zone":"TRAFFIC_PAGE","_network":"10.99.100","_refresh":1,"_multiplier":1}' > /www/data/users.json
 
 if [ ! -f /www/data/users-pay.json ]; then
     echo '{"paid":{}}' > /www/data/users-pay.json
@@ -291,9 +291,7 @@ uci set bandix.general.tc_priority='0'
 
 uci set bandix.traffic='bandix'
 uci set bandix.traffic.enabled='1'
-uci set bandix.traffic.traffic_enable_storage='1'
 uci set bandix.traffic.traffic_exclude_iface_device='1'
-uci set bandix.traffic.traffic_flush_interval='300'
 uci set bandix.traffic.traffic_export_url='http://127.0.0.1/cgi-bin/traffic-push'
 uci set bandix.traffic.speed_unit='bytes'
 uci set bandix.traffic.traffic_neighbor_flush_enable='0'
@@ -312,18 +310,20 @@ ubus call service reload '{"name":"dnsmasq"}' >/dev/null 2>&1 \
 [ -d /www/cgi-bin ] && chmod +x /www/cgi-bin/* 2>/dev/null
 [ -f /usr/bin/traffic-quota ] && chmod +x /usr/bin/traffic-quota
 [ -f /usr/bin/generate-hosts.sh ] && chmod +x /usr/bin/generate-hosts.sh
+[ -f /usr/bin/traffic-accumulator-loop.sh ] && chmod +x /usr/bin/traffic-accumulator-loop.sh
+[ -f /etc/init.d/traffic-accumulator ] && chmod +x /etc/init.d/traffic-accumulator
+
+# Enable and start accumulator process
+if [ -x /etc/init.d/traffic-accumulator ]; then
+    /etc/init.d/traffic-accumulator enable >/dev/null 2>&1
+    /etc/init.d/traffic-accumulator restart >/dev/null 2>&1
+fi
 
 # Fix permissions
 chmod 664 /www/data/users.json 2>/dev/null
 chmod 664 /www/data/users-pay.json 2>/dev/null
 chmod 600 /usr/share/traffic-page.json 2>/dev/null
 chmod 664 /tmp/trafficpage/* 2>/dev/null
-
-# Default quota cron
-if ! grep -q 'traffic-quota' /etc/crontabs/root 2>/dev/null; then
-    echo "*/2 * * * * /usr/bin/traffic-quota" >> /etc/crontabs/root
-    /etc/init.d/cron restart 2>/dev/null
-fi
 
 echo "[Traffic-Page] Ready"
 
