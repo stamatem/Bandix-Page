@@ -627,6 +627,15 @@ input:checked + .slider:before {
     gap:4px;
   }
 }
+
+/* Center Add MAC input and placeholder */
+input[id^="mac-"] {
+  text-align: center;
+}
+
+input[id^="mac-"]::placeholder {
+  text-align: center;
+}
 </style>
 </head>
 
@@ -1130,13 +1139,11 @@ async function load() {
       </div>
 
       <div class="mac">
-        <div class="mac-box">
-          <input 
-            id="mac-${user}" 
-            placeholder="aa:bb:cc:dd:ee:ff"
-            oninput="formatMac(this)"
-            onkeydown="handleMacKey(event, this)">
-        </div>
+        <input
+          id="mac-${user}"
+          placeholder="aa:bb:cc:dd:ee:ff"
+          oninput="formatMac(this)"
+          onkeydown="handleMacKey(event, this)">
 
         <button onclick="addMac('${user}', this)" class="action plus-btn">Add</button>
       </div>
