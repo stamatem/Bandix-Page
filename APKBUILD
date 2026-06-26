@@ -30,9 +30,9 @@ package() {
 
     cp -r ./www/* "$pkgdir/www/"
     cp -r ./usr/bin/* "$pkgdir/usr/bin/"
-    cp ./etc/init.d/traffic-accumulator "$pkgdir/etc/init.d/"
+    cp ./etc/init.d/traffic-page "$pkgdir/etc/init.d/"
 
     chmod +x "$pkgdir/www/cgi-bin/"*
     chmod +x "$pkgdir/usr/bin/"*
-    chmod +x "$pkgdir/etc/init.d/traffic-accumulator"
+    chmod +x "$pkgdir/etc/init.d/traffic-page"
 }
