@@ -3,12 +3,12 @@
 echo "[Traffic-Page] Removing..."
 
 # -------------------------
-# remove Traffic cron entries
+# stop and remove accumulator service
 # -------------------------
-[ -f /etc/crontabs/root ] && sed -i '/traffic-quota/d' /etc/crontabs/root
-
-# restart cron to apply changes
-/etc/init.d/cron restart 2>/dev/null
+if [ -x /etc/init.d/traffic-accumulator ]; then
+    /etc/init.d/traffic-accumulator stop >/dev/null 2>&1
+    /etc/init.d/traffic-accumulator disable >/dev/null 2>&1
+fi
 
 TRAFFIC_IFACE="TRAFFIC_PAGE"
 
@@ -211,6 +211,7 @@ rm -f /www/data/users.json
 rm -f /www/data/users-pay.json
 rm -f /www/data/traffic-public.json
 rm -f /usr/share/traffic-page.json
+rm -f /www/data/traffic-totals.json
 
 # -------------------------
 # remove temp directory
